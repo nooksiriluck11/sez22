@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>22 kV Distribution System Construction Plan</title>
+  <!-- palette v3 -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://js.arcgis.com/4.17/esri/themes/light/main.css" />
+  <script src="https://js.arcgis.com/4.17/"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    :root {
+      /* palette: green / mint / lavender / coral / navy */
+      --lav:#C8C2E0; --purple:#C8C2E0; --orange:#F05C4F; --dark:#292866; --blush:#97D0B1;
+      --purple-deep:#292866; --money:#F05C4F; --side-bg:#f4f3f9; --card-bd:#e5e2ef;
+    }
+    html, body { margin: 0; height: 100%; color: var(--dark);
+      font-family: "IBM Plex Sans Thai", "Segoe UI", Tahoma, sans-serif;
+      -webkit-font-smoothing: antialiased; }
+    #app { display: flex; flex-direction: column; height: 100%; }
+
+    #header { height: 52px; flex: 0 0 52px; color:var(--purple-deep); display:flex; align-items:center;
+      padding:0 16px; background: var(--lav);
+      box-shadow:0 2px 6px rgba(0,0,0,.12); z-index:50; gap:8px; }
+    #header .logo { width:34px; height:34px; border-radius:6px; background:#fff; color:#4a148c;
+      display:flex; align-items:center; justify-content:center; font-weight:800; }
+    #header h1 { font-size:15px; margin:0 8px 0 4px; font-weight:600; white-space:nowrap; }
+    #header .spacer { flex:1; }
+    .hbtn { background:rgba(41,40,102,.08); color:var(--purple-deep); border:1px solid rgba(41,40,102,.28);
+      border-radius:6px; padding:6px 11px; font-size:12.5px; cursor:pointer; white-space:nowrap; }
+    .hbtn:hover { background:rgba(41,40,102,.16); }
+    .hbtn.primary { background:var(--purple-deep); color:#fff; font-weight:600; border-color:var(--purple-deep); }
+    .hbtn.primary:hover { background:#1e1d4d; }
+    #sideToggle { padding:5px 9px; font-size:14px; line-height:1; }
+
+    #main { flex:1; display:flex; min-height:0; }
+    #side { width:500px; flex:0 0 500px; background:var(--side-bg); border-right:1px solid #e2ddf0;
+      min-height:0; overflow:hidden; transition:flex-basis .25s ease, width .25s ease; }
+    #side.collapsed { flex-basis:0; width:0; border-right:none; }
+    #sideInner { width:500px; height:100%; display:flex; flex-direction:column; min-height:0; }
+
+    /* KPI: การ์ดขาว minimal + จุดสีบอกหมวด */
+    #kpis { display:grid; grid-template-columns:repeat(12,1fr); gap:9px; padding:14px; }
+    .kpi { grid-column: span 4; min-width:0; background:#fff; border-radius:13px; padding:10px 13px;
+      box-shadow:0 1px 3px rgba(41,40,102,.07); }   /* 3 การ์ดต่อแถว */
+    .kpi .label { display:flex; align-items:center; gap:6px; font-size:10.5px; color:#8b8393; font-weight:500; }
+    .kpi .dot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+    .kpi .value { font-size:19px; font-weight:700; color:var(--dark); margin-top:4px; line-height:1.1; }
+    .kpi .unit { font-size:10.5px; color:#aaa4b6; font-weight:500; }
+    .kpi.cost { background:#fdf1ef; }
+    .kpi.cost .value { color:var(--money); }
+    /* การ์ดใหญ่ "ปริมาณพัสดุ" ครอบ 3 ตัวเลขย่อย */
+    .kpi-group { grid-column: span 12; background:#fff; border-radius:13px; padding:11px 15px 13px;
+      box-shadow:0 1px 3px rgba(41,40,102,.07); }
+    .group-title { display:flex; align-items:center; gap:7px; font-size:11.5px; color:#7d7896; font-weight:600; margin-bottom:11px; }
+    .group-title::before { content:""; width:4px; height:14px; border-radius:2px; background:var(--purple-deep); }
+    .group-body { display:grid; grid-template-columns:repeat(3,1fr); }
+    .sub { min-width:0; padding:0 15px; }
+    .sub:first-child { padding-left:0; }
+    .sub + .sub { border-left:1px solid #efedf6; }
+    .sub .label { display:flex; align-items:center; gap:6px; font-size:10.5px; color:#8b8393; font-weight:500; }
+    .sub .dot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+    .sub .value { font-size:18px; font-weight:700; color:var(--dark); margin-top:3px; line-height:1.1; }
+    .sub .unit { font-size:10.5px; color:#aaa4b6; font-weight:500; }
+
+    #tableWrap { flex:1; overflow:auto; margin:0 14px 14px; background:#fff; border-radius:13px;
+      box-shadow:0 1px 3px rgba(41,40,102,.07); }
+    table { width:100%; border-collapse:collapse; font-size:11.5px; background:transparent; }
+    th, td { border-bottom:1px solid #f2f0f8; padding:7px 9px; text-align:left; white-space:nowrap; }
+    th { position:sticky; top:0; background:#fff; color:#8b8393; z-index:1; text-align:right; font-weight:600; border-bottom:1.5px solid #e9e5f2; }
+    th:first-child { text-align:left; }
+    td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    tr.jobRow { cursor:pointer; }
+    tr.jobRow:hover { background:#f6f4fb; }
+    tr.jobRow.active { background:#eee9f7; }
+    tfoot td { font-weight:700; background:#faf9fd; color:var(--purple-deep); border-top:1.5px solid #e9e5f2; position:sticky; bottom:0; }
+    .miniBtn { border:none; background:none; cursor:pointer; font-size:13px; padding:2px 4px; border-radius:4px; }
+    .miniBtn:hover { background:#eee9f7; }
+
+    #viewDiv { flex:1; position:relative; }
+    #hint { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:20;
+      background:rgba(74,20,140,.92); color:#fff; padding:7px 14px; border-radius:20px; font-size:12.5px;
+      display:none; }
+
+    /* tooltip ตอนเอาเมาส์ชี้เส้น */
+    #tip { position:absolute; z-index:30; pointer-events:none; display:none;
+      background:#fff; border:1px solid #ddd; border-top:3px solid var(--purple-deep); border-radius:8px;
+      box-shadow:0 6px 20px rgba(41,40,102,.22); padding:9px 12px; font-size:12.5px; max-width:240px; }
+    #tip .tipTitle { font-weight:700; color:var(--purple-deep); margin-bottom:6px; font-size:13.5px; }
+    #tip table { width:100%; border-collapse:collapse; }
+    #tip td { padding:1px 0; border:none; }
+    #tip td.k { color:#777; padding-right:14px; }
+    #tip td.v { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+    /* Modal ฟอร์มงาน */
+    #modal { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100;
+      display:none; align-items:center; justify-content:center; }
+    #modalCard { background:#fff; border-radius:10px; width:340px; padding:18px 20px;
+      box-shadow:0 10px 30px rgba(0,0,0,.3); }
+    #modalCard h2 { margin:0 0 14px; font-size:16px; color:var(--purple-deep); }
+    #modalCard label { display:block; font-size:12px; color:#555; margin:8px 0 3px; }
+    #modalCard input { width:100%; box-sizing:border-box; padding:7px 8px; border:1px solid #ccc;
+      border-radius:5px; font-size:13px; font-family:inherit; }
+    #modalCard .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    #modalBtns { display:flex; gap:8px; margin-top:16px; }
+    #modalBtns button { flex:1; padding:9px; border-radius:6px; border:none; cursor:pointer; font-size:13px; font-weight:600; }
+    #saveBtn { background:var(--purple-deep); color:#fff; }
+    #saveBtn:hover { background:#1e1d4d; }
+    #cancelBtn { background:#eee; color:#333; }
+
+    /* กล่อง modal ใส่พิกัด (คลาสร่วม) */
+    .modal2 { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100; display:none; align-items:center; justify-content:center; }
+    .mcard { background:#fff; border-radius:10px; width:340px; padding:18px 20px; box-shadow:0 10px 30px rgba(0,0,0,.3); }
+    .mcard h2 { margin:0 0 14px; font-size:16px; color:var(--purple-deep); }
+    .mcard label { display:block; font-size:12px; color:#555; margin:8px 0 3px; }
+    .mcard input { width:100%; box-sizing:border-box; padding:7px 8px; border:1px solid #ccc; border-radius:5px; font-size:13px; font-family:inherit; }
+    .mcard .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .mbtns { display:flex; gap:8px; margin-top:16px; }
+    .mbtns button { flex:1; padding:9px; border-radius:6px; border:none; cursor:pointer; font-size:13px; font-weight:600; }
+    .btnPrimary { background:var(--purple-deep); color:#fff; }
+    .btnPrimary:hover { background:#1e1d4d; }
+    .btnGhost { background:#eee; color:#333; }
+    .midRow { margin-top:8px; padding:8px 10px; background:#f7f6fb; border:1px dashed #d6d0e6; border-radius:8px; }
+    .midHead { display:flex; justify-content:space-between; align-items:center; }
+    .midHead label { margin:0 !important; color:var(--purple-deep); font-weight:600; }
+    .midDel { cursor:pointer; color:#a11; font-weight:bold; padding:0 5px; border-radius:3px; }
+    .midDel:hover { background:#f5d6d6; }
+    .addMidBtn { margin-top:8px; width:100%; padding:7px; border:1px dashed var(--purple); background:#f4f3f9;
+      color:var(--purple-deep); border-radius:8px; cursor:pointer; font-size:12.5px; font-weight:600; }
+    .addMidBtn:hover { background:#ece9f5; }
+
+    #empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      flex-direction:column; color:#888; font-size:14px; text-align:center; background:#fafafa; z-index:5; }
+    #empty .big { font-size:40px; margin-bottom:10px; }
+    #empty button { margin-top:14px; background:var(--purple-deep); color:#fff; border:none; border-radius:8px;
+      padding:10px 18px; font-size:14px; cursor:pointer; }
+    #empty button:hover { background:#1e1d4d; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="header">
+      <button class="hbtn" id="sideToggle" title="ย่อ/ขยายแผงข้อมูล">◀</button>
+      <h1>22 kV Distribution System Construction Plan</h1>
+      <button class="hbtn primary" id="btnDraw">✏️ วาดงานใหม่</button>
+      <button class="hbtn" id="snapToggle" title="เปิด/ปิด snap ตามถนน (OSRM)">🛣️ Snap: เปิด</button>
+      <button class="hbtn" id="btnCoord" title="เพิ่มงานจากพิกัด เริ่มต้น-สิ้นสุด">📍 ใส่พิกัด</button>
+      <div class="spacer"></div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.geojson,.json" style="display:none" />
+      <button class="hbtn" id="btnImport">⬆︎ Import</button>
+      <button class="hbtn" id="btnXlsx">⬇︎ Excel</button>
+      <button class="hbtn" id="btnGeojson">⬇︎ GeoJSON</button>
+    </div>
+
+    <div id="main">
+      <div id="side">
+        <div id="sideInner">
+          <div id="kpis"></div>
+          <div id="tableWrap"><table id="jobTable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
+        </div>
+      </div>
+
+      <div id="viewDiv">
+        <div id="hint"></div>
+        <div id="tip"></div>
+        <div id="empty">
+          <div class="big">🛣️</div>
+          <div>กด "✏️ วาดงานใหม่" เพื่อลากแนวเส้นบนแผนที่</div>
+          <div style="font-size:12px;color:#aaa;margin-top:6px;">คลิกทีละจุดตามถนน • ดับเบิลคลิกเพื่อจบเส้น</div>
+          <button id="emptyDraw">✏️ เริ่มวาดงานแรก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal ฟอร์มข้อมูลงาน -->
+  <div id="modal">
+    <div id="modalCard">
+      <h2 id="modalTitle">ข้อมูลงาน</h2>
+      <div id="distReadout" style="display:none; margin:0 0 12px; padding:8px 10px; background:#f4f3f9; border-radius:8px; font-size:12.5px; color:var(--purple-deep);"></div>
+      <label>ชื่อ/รหัสงาน *</label>
+      <input id="f_job" type="text" placeholder="เช่น 22kV-บ้านโนนสูง" />
+      <div class="grid2">
+        <div><label>WBS</label><input id="f_wbs" type="text" placeholder="รหัส WBS" /></div>
+        <div><label>เลขแผนผัง</label><input id="f_drawing" type="text" placeholder="เลขแผนผัง" /></div>
+      </div>
+      <div class="grid2">
+        <div><label>ปริมาณ (วงจร-กม.)</label><input id="f_qty" type="number" step="any" /></div>
+        <div><label>ค่าใช้จ่าย (บาท)</label><input id="f_cost" type="number" step="any" /></div>
+        <div><label>จำนวนเสา 14.30</label><input id="f_p1430" type="number" step="any" /></div>
+        <div><label>จำนวนเสา 12.20</label><input id="f_p1220" type="number" step="any" /></div>
+      </div>
+      <label>ปริมาณ 185 SAC (ม.)</label>
+      <input id="f_sac" type="number" step="any" />
+      <div id="modalBtns">
+        <button id="cancelBtn">ยกเลิก</button>
+        <button id="saveBtn">บันทึก</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal ใส่พิกัด เริ่มต้น-สิ้นสุด -->
+  <div id="coordModal" class="modal2">
+    <div class="mcard">
+      <h2>เพิ่มงานจากพิกัด</h2>
+      <div style="font-size:12px;color:#777;margin:-6px 0 10px;">ใส่พิกัด (องศาทศนิยม) — เพิ่มจุดกลางได้ถ้าเส้นทางไม่ตรงตามต้องการ</div>
+      <label>🟢 จุดเริ่มต้น</label>
+      <div class="grid2">
+        <input id="c_latS" type="number" step="any" placeholder="lat 17.412500" />
+        <input id="c_lngS" type="number" step="any" placeholder="long 102.813400" />
+      </div>
+      <div id="midPoints"></div>
+      <button id="addMid" type="button" class="addMidBtn">+ เพิ่มจุดกลาง</button>
+      <label>🔴 จุดสิ้นสุด</label>
+      <div class="grid2">
+        <input id="c_latE" type="number" step="any" placeholder="lat 17.420100" />
+        <input id="c_lngE" type="number" step="any" placeholder="long 102.826500" />
+      </div>
+      <div class="mbtns">
+        <button id="coordCancel" class="btnGhost">ยกเลิก</button>
+        <button id="coordCalc" class="btnPrimary">คำนวณแนวถนน</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let view, sketch, routeLayer, Graphic, Polyline, SimpleLineSymbol, webMercatorUtils, geometryEngine;
+    let records = [];               // {id, job, qty, cost, pole1430, pole1220, sac185, paths(lat/long), lengthM}
+    let graphicsById = {};
+    let pendingPaths = null, pendingLen = 0, editingId = null, seq = 1, snapEnabled = true;
+    const LS_KEY = "pea_routes22kv_curve_v1";
+    // ===== ฐานข้อมูลกลาง = Google Sheet (ผ่าน Apps Script) =====
+    const SHEET_API = "https://script.google.com/macros/s/AKfycbxDbdIchMxbP7v24j1CnA9cSAMrEgWe3u9plCM53DBZZQ0D2Pc0mIlF41trL-4mnjwB/exec";
+    const SHEET_TOKEN = "sez22";       // ต้องตรงกับ TOKEN ใน Apps Script
+    const AUTO_REFRESH_SEC = 30;       // ดึงข้อมูลใหม่อัตโนมัติทุกกี่วินาที (0 = ปิด)
+    const routeSymbol = { type: "simple-line", color: [240, 92, 79, 0.95], width: 4, cap: "round", join: "round" };
+
+    require([
+      "esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer", "esri/layers/MapImageLayer", "esri/widgets/Sketch",
+      "esri/Graphic", "esri/geometry/Polyline", "esri/symbols/SimpleLineSymbol",
+      "esri/geometry/support/webMercatorUtils", "esri/geometry/geometryEngine",
+      "esri/widgets/ScaleBar", "esri/widgets/Home"
+    ], function (Map, MapView, GraphicsLayer, MapImageLayer, Sketch, _G, _PL, _SLS, _wm, _ge, ScaleBar, Home) {
+      Graphic = _G; Polyline = _PL; SimpleLineSymbol = _SLS; webMercatorUtils = _wm; geometryEngine = _ge;
+
+      // ===== Basemap (แผนที่พื้นฐานสะอาดของ Esri) =====
+      const map = new Map({ basemap: "streets-vector" });
+      view = new MapView({ container: "viewDiv", map: map, center: [102.82, 17.41], zoom: 13 });
+
+      // (เผื่อภายหลัง) ชั้นข้อมูล PEA — ใส่ layer id ที่จะแสดงใน PEA_SHOW_LAYERS แล้วโค้ดจะโหลดให้เอง
+      const PEA_URL = "https://gisne1.pea.co.th/arcgis/rest/services/PEA/MapServer";
+      const PEA_SHOW_LAYERS = [];   // ว่าง = ใช้แค่ basemap; ใส่ id เพื่อเพิ่มชั้น PEA เช่น [7, 5] (ต้อง VPN)
+      if (PEA_SHOW_LAYERS.length) {
+        const peaLayer = new MapImageLayer({ url: PEA_URL, title: "ชั้นข้อมูล PEA" });
+        map.add(peaLayer);
+        window._peaLayer = peaLayer;
+        peaLayer.when(function () {
+          const all = peaLayer.allSublayers;
+          const parentOf = {};
+          all.forEach(function (sl) { parentOf[sl.id] = (sl.parent && sl.parent.id != null) ? sl.parent.id : null; });
+          function inShow(id) { let c = id, g = 0; while (c != null && g++ < 60) { if (PEA_SHOW_LAYERS.indexOf(c) >= 0) return true; c = parentOf[c]; } return false; }
+          const showSet = {};
+          all.forEach(function (sl) { if (inShow(sl.id)) showSet[sl.id] = true; });
+          PEA_SHOW_LAYERS.forEach(function (id) { let c = id; while (c != null) { showSet[c] = true; c = parentOf[c]; } });
+          all.forEach(function (sl) { sl.visible = !!showSet[sl.id]; });
+        }, function (err) { console.warn("โหลดชั้น PEA ไม่สำเร็จ (ต้อง VPN):", err && err.message); });
+      }
+
+      routeLayer = new GraphicsLayer({ title: "งานก่อสร้าง 22kV" });
+      map.add(routeLayer);   // อยู่บนสุด
+
+      sketch = new Sketch({
+        view: view, layer: routeLayer, creationMode: "single",
+        availableCreateTools: ["polyline"],
+        visibleElements: { createTools: { point:false, polyline:true, polygon:false, rectangle:false, circle:false }, settingsMenu:false }
+      });
+      sketch.viewModel.polylineSymbol = routeSymbol;
+      view.ui.add(sketch, "top-right");
+      view.ui.add(new Home({ view: view }), "top-left");
+      view.ui.add(new ScaleBar({ view: view, unit: "metric" }), "bottom-left");
+
+      // วาดเส้นใหม่เสร็จ -> เปิดฟอร์ม
+      sketch.on("create", function (e) {
+        if (e.state === "complete") {
+          const clicked = toLatLng(e.graphic.geometry);   // [[[lng,lat],...]] จุดที่คลิก
+          routeLayer.remove(e.graphic);
+          editingId = null;
+          const pts = clicked[0] || [];
+          if (snapEnabled && pts.length >= 2) {
+            snapToRoad(pts);                 // async: snap ตามถนน แล้วค่อย openForm
+          } else {
+            pendingPaths = clicked;
+            pendingLen = geodesicOf(pts);
+            openForm(null);
+          }
+        }
+      });
+      // แก้แนวเส้นเดิมเสร็จ -> อัปเดตพิกัด
+      sketch.on("update", function (e) {
+        if (e.state === "complete") {
+          e.graphics.forEach(function (g) {
+            const rec = records.find(function (r) { return r.id === g.attributes.id; });
+            if (rec) { rec.paths = toLatLng(g.geometry); rec.lengthM = geometryEngine.geodesicLength(g.geometry, "meters"); }
+          });
+          saveLS(); renderDashboard();
+        }
+      });
+
+      // เอาเมาส์ชี้เส้น -> โชว์ tooltip ทันที (ไม่ต้องคลิก)
+      view.on("pointer-move", function (event) {
+        if (sketch && sketch.viewModel.state === "active") { hideTip(); return; }   // กำลังวาดอยู่ ไม่ต้องโชว์
+        view.hitTest(event).then(function (resp) {
+          const hit = resp.results.find(function (r) {
+            return r.graphic && r.graphic.layer === routeLayer && r.graphic.attributes && r.graphic.attributes.id != null;
+          });
+          if (hit) {
+            const rec = records.find(function (x) { return x.id === hit.graphic.attributes.id; });
+            if (rec) { showTip(rec, event.x, event.y); view.container.style.cursor = "pointer"; return; }
+          }
+          hideTip(); view.container.style.cursor = "";
+        }).catch(function () {});
+      });
+      view.on("pointer-leave", hideTip);
+
+      window._view = view; window._records = records;
+      loadLS();                          // แสดงข้อมูลในเครื่องก่อน (เร็ว)
+      if (SHEET_API) {
+        sheetGet();                      // ดึงล่าสุดจาก Google Sheet มาทับ
+        if (AUTO_REFRESH_SEC > 0) setInterval(function () {
+          if (saving) return;            // กำลังเซฟอยู่ ข้ามรอบนี้
+          if ($("modal").style.display === "flex" || $("coordModal").style.display === "flex") return; // กำลังกรอกฟอร์ม
+          sheetGet();
+        }, AUTO_REFRESH_SEC * 1000);
+      }
+    });
+
+    // ---------- tooltip (hover) ----------
+    function tipRow(k, v, u) { return "<tr><td class='k'>" + k + "</td><td class='v'>" + fmt(v) + (u ? " <span style='color:#a99fb3'>" + u + "</span>" : "") + "</td></tr>"; }
+    function tooltipHTML(rec) {
+      return "<div class='tipTitle'>" + rec.job + "</div><table>" +
+        tipRow("WBS", rec.wbs) +
+        tipRow("เลขแผนผัง", rec.drawing) +
+        tipRow("ระยะทาง", Math.round(rec.lengthM || 0), "ม.") +
+        tipRow("ปริมาณ", rec.qty, "วงจร-กม.") +
+        tipRow("ค่าใช้จ่าย", rec.cost, "บาท") +
+        tipRow("จำนวนเสา 14.30", rec.pole1430, "ต้น") +
+        tipRow("จำนวนเสา 12.20", rec.pole1220, "ต้น") +
+        tipRow("ปริมาณ 185 SAC", rec.sac185, "เมตร") + "</table>";
+    }
+    function showTip(rec, x, y) {
+      const tip = document.getElementById("tip"), vd = document.getElementById("viewDiv");
+      tip.innerHTML = tooltipHTML(rec);
+      tip.style.display = "block";
+      let left = x + 16, top = y + 16;
+      if (left + tip.offsetWidth > vd.clientWidth) left = x - tip.offsetWidth - 16;
+      if (top + tip.offsetHeight > vd.clientHeight) top = y - tip.offsetHeight - 16;
+      tip.style.left = Math.max(4, left) + "px";
+      tip.style.top = Math.max(4, top) + "px";
+    }
+    function hideTip() { const t = document.getElementById("tip"); if (t) t.style.display = "none"; }
+
+    // ---------- geometry helpers ----------
+    function toLatLng(geom) { return webMercatorUtils.webMercatorToGeographic(geom).paths; }
+    function recordToGraphic(rec) {
+      const wm = webMercatorUtils.geographicToWebMercator(
+        new Polyline({ paths: rec.paths, spatialReference: { wkid: 4326 } }));
+      return new Graphic({
+        geometry: wm, symbol: routeSymbol,
+        attributes: { id: rec.id, job: rec.job }, popupTemplate: makePopup(rec)
+      });
+    }
+    function makePopup(rec) {
+      return { title: rec.job, overwriteActions: true, actions: [], content: function () {
+        return "<table style='font-size:13px'>" +
+          rowHtml("WBS", rec.wbs) +
+          rowHtml("เลขแผนผัง", rec.drawing) +
+          rowHtml("ระยะทาง", Math.round(rec.lengthM || 0), "ม.") +
+          rowHtml("ปริมาณ", rec.qty, "วงจร-กม.") +
+          rowHtml("ค่าใช้จ่าย", rec.cost, "บาท") +
+          rowHtml("จำนวนเสา 14.30", rec.pole1430, "ต้น") +
+          rowHtml("จำนวนเสา 12.20", rec.pole1220, "ต้น") +
+          rowHtml("ปริมาณ 185 SAC", rec.sac185, "เมตร") + "</table>";
+      } };
+    }
+    function totalPts(rec) { let n = 0; (rec.paths || []).forEach(function (p) { n += p.length; }); return n; }
+    function rowHtml(l, v, u) { return "<tr><td style='color:#777;padding:2px 10px 2px 0'>" + l + "</td><td style='text-align:right;white-space:nowrap'>" + fmt(v) + (u ? " <span style='color:#999'>" + u + "</span>" : "") + "</td></tr>"; }
+    function fmt(v) { return (v == null || v === "") ? "-" : (typeof v === "number" ? v.toLocaleString("th-TH") : v); }
+
+    // ---------- rebuild graphics ----------
+    function rebuild() {
+      routeLayer.removeAll(); graphicsById = {};
+      records.forEach(function (rec) { const g = recordToGraphic(rec); routeLayer.add(g); graphicsById[rec.id] = g; });
+      document.getElementById("empty").style.display = records.length ? "none" : "";
+    }
+
+    // ---------- ฟอร์มงาน ----------
+    const $ = function (id) { return document.getElementById(id); };
+    function openForm(rec) {
+      $("modalTitle").textContent = rec ? "แก้ไขข้อมูลงาน" : "ข้อมูลงานใหม่";
+      const lenM = rec ? (rec.lengthM || 0) : (pendingLen || 0);
+      const km = Math.round(lenM / 10) / 100;   // ระยะทางเป็น กม. (2 ทศนิยม)
+      $("f_job").value = rec ? rec.job : "";
+      $("f_wbs").value = rec && rec.wbs != null ? rec.wbs : "";
+      $("f_drawing").value = rec && rec.drawing != null ? rec.drawing : "";
+      // เติม "ปริมาณ (วงจร-กม.)" อัตโนมัติจากระยะทางที่คำนวณ (งานใหม่); แก้ไขทีหลังได้
+      $("f_qty").value = rec && rec.qty != null ? rec.qty : (km || "");
+      $("f_cost").value = rec && rec.cost != null ? rec.cost : "";
+      $("f_p1430").value = rec && rec.pole1430 != null ? rec.pole1430 : "";
+      $("f_p1220").value = rec && rec.pole1220 != null ? rec.pole1220 : "";
+      $("f_sac").value = rec && rec.sac185 != null ? rec.sac185 : "";
+      const ro = $("distReadout");
+      if (lenM > 0) {
+        ro.style.display = "block";
+        ro.innerHTML = "📏 ระยะทางจากแนวเส้น: <b>" + Math.round(lenM).toLocaleString("th-TH") + " ม.</b>" +
+          " — เติมช่องปริมาณ (" + km.toLocaleString("th-TH") + " วงจร-กม.) ให้แล้ว";
+      } else { ro.style.display = "none"; }
+      editingId = rec ? rec.id : editingId;   // เก็บ id ถ้าแก้ไข
+      $("modal").style.display = "flex";
+      $("f_job").focus();
+    }
+    function closeForm() {
+      $("modal").style.display = "none"; pendingPaths = null; editingId = null;
+      $("empty").style.display = records.length ? "none" : "";   // ยกเลิกแล้วยังไม่มีงาน -> โชว์ overlay กลับ
+    }
+    function numOrNull(v) { return v === "" || v == null ? null : Number(v); }
+
+    function saveForm() {
+      const job = $("f_job").value.trim();
+      if (!job) { alert("กรุณากรอกชื่องาน"); return; }
+      const data = {
+        job: job, wbs: $("f_wbs").value.trim(), drawing: $("f_drawing").value.trim(),
+        qty: numOrNull($("f_qty").value), cost: numOrNull($("f_cost").value),
+        pole1430: numOrNull($("f_p1430").value), pole1220: numOrNull($("f_p1220").value),
+        sac185: numOrNull($("f_sac").value)
+      };
+      if (editingId != null && records.find(function (r) { return r.id === editingId; })) {
+        Object.assign(records.find(function (r) { return r.id === editingId; }), data);
+      } else {
+        records.push(Object.assign({ id: seq++, paths: pendingPaths, lengthM: pendingLen }, data));
+      }
+      closeForm(); saveLS(); rebuild(); renderDashboard();
+    }
+
+    // ---------- KPI + ตาราง + filter ----------
+    function sum(arr, f) { return arr.reduce(function (s, d) { return s + (f(d) || 0); }, 0); }
+
+    // แสดงทุกงานเสมอ (ไม่มี dropdown กรอง)
+    function renderDashboard() {
+      routeLayer.graphics.forEach(function (g) { g.visible = true; });
+      renderKPIs(records);
+      renderTable(records);
+    }
+
+    // คลิกแถว -> ซูมไปหางาน + ไฮไลต์แถว
+    function zoomToJob(id) {
+      const g = graphicsById[id]; if (!g) return;
+      Array.prototype.forEach.call(document.querySelectorAll("#jobTable tbody tr"), function (tr) {
+        tr.classList.toggle("active", Number(tr.getAttribute("data-id")) === id);
+      });
+      view.goTo(g.geometry).then(function () { view.popup.open({ features: [g], location: g.geometry.extent.center }); }).catch(function () {});
+    }
+    function renderKPIs(arr) {
+      const P = "#406352", M = "#97D0B1", O = "#F05C4F", L = "#C8C2E0", D = "#292866";
+      const top = [
+        { label: "จำนวนงาน", value: arr.length, unit: "งาน", accent: P },
+        { label: "รวมค่าใช้จ่าย", value: sum(arr, function (d) { return d.cost; }), unit: "บาท", cls: "cost", accent: O },
+        { label: "รวมปริมาณ", value: sum(arr, function (d) { return d.qty; }), unit: "วงจร-กม.", accent: L }
+      ];
+      const mat = [
+        { label: "รวม 185 SAC", value: sum(arr, function (d) { return d.sac185; }), unit: "เมตร", accent: M },
+        { label: "เสา 14.30", value: sum(arr, function (d) { return d.pole1430; }), unit: "ต้น", accent: D },
+        { label: "เสา 12.20", value: sum(arr, function (d) { return d.pole1220; }), unit: "ต้น", accent: D }
+      ];
+      function stat(c, cls) {
+        return '<div class="' + cls + ' ' + (c.cls || "") + '">' +
+          '<div class="label"><span class="dot" style="background:' + c.accent + '"></span>' + c.label + '</div>' +
+          '<div class="value">' + (c.value || 0).toLocaleString("th-TH") + ' <span class="unit">' + c.unit + '</span></div></div>';
+      }
+      $("kpis").innerHTML =
+        top.map(function (c) { return stat(c, "kpi"); }).join("") +
+        '<div class="kpi-group"><div class="group-title">ปริมาณพัสดุ</div><div class="group-body">' +
+        mat.map(function (c) { return stat(c, "sub"); }).join("") + '</div></div>';
+    }
+    function km(m) { return Math.round((m || 0) / 100) / 10; }
+    function renderTable(arr) {
+      document.querySelector("#jobTable thead").innerHTML =
+        "<tr><th>งาน</th><th style='text-align:left'>WBS</th><th>ปริมาณ</th><th>ค่าใช้จ่าย</th><th>เสา<br>14.30</th><th>เสา<br>12.20</th><th>185<br>SAC</th><th></th></tr>";
+      const tb = document.querySelector("#jobTable tbody");
+      tb.innerHTML = arr.map(function (d) {
+        return '<tr class="jobRow" data-id="' + d.id + '">' +
+          '<td>' + d.job + '</td>' +
+          '<td>' + (d.wbs || "") + '</td>' +
+          '<td class="num">' + fmt(d.qty) + '</td>' +
+          '<td class="num">' + fmt(d.cost) + '</td>' +
+          '<td class="num">' + fmt(d.pole1430) + '</td>' +
+          '<td class="num">' + fmt(d.pole1220) + '</td>' +
+          '<td class="num">' + fmt(d.sac185) + '</td>' +
+          '<td style="white-space:nowrap"><button class="miniBtn bEdit" title="แก้ข้อมูล">✏️</button>' +
+          '<button class="miniBtn bDel" title="ลบ">🗑️</button></td></tr>';
+      }).join("");
+
+      // แถวรวมท้ายตาราง
+      document.querySelector("#jobTable tfoot").innerHTML = arr.length ? (
+        '<tr><td>รวม (' + arr.length + ' งาน)</td><td></td>' +
+        '<td class="num">' + fmt(sum(arr, function (d) { return d.qty; })) + '</td>' +
+        '<td class="num">' + fmt(sum(arr, function (d) { return d.cost; })) + '</td>' +
+        '<td class="num">' + fmt(sum(arr, function (d) { return d.pole1430; })) + '</td>' +
+        '<td class="num">' + fmt(sum(arr, function (d) { return d.pole1220; })) + '</td>' +
+        '<td class="num">' + fmt(sum(arr, function (d) { return d.sac185; })) + '</td><td></td></tr>'
+      ) : "";
+
+      Array.prototype.forEach.call(tb.querySelectorAll(".jobRow"), function (tr) {
+        const id = Number(tr.getAttribute("data-id"));
+        tr.querySelector(".bEdit").onclick = function (e) { e.stopPropagation(); openForm(records.find(function (r) { return r.id === id; })); };
+        tr.querySelector(".bDel").onclick = function (e) {
+          e.stopPropagation();
+          if (!confirm("ลบงาน '" + records.find(function (r) { return r.id === id; }).job + "' ?")) return;
+          records = records.filter(function (r) { return r.id !== id; });
+          window._records = records; saveLS(); rebuild(); renderDashboard();
+        };
+        tr.onclick = function () { zoomToJob(id); };
+      });
+    }
+
+    // ---------- localStorage ----------
+    function saveLS() {
+      try { localStorage.setItem(LS_KEY, JSON.stringify({ seq: seq, records: records })); } catch (e) {}
+      scheduleSheetSave();   // เซฟขึ้น Google Sheet อัตโนมัติทุกครั้งที่ข้อมูลเปลี่ยน
+    }
+    function loadLS() {
+      let d; try { d = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) { d = null; }
+      if (d && d.records) { records = d.records; seq = d.seq || (records.length + 1); window._records = records; rebuild(); renderDashboard(); }
+    }
+
+    // ---------- Export ----------
+    function download(name, text, type) {
+      const url = URL.createObjectURL(new Blob([text], { type: type }));
+      const a = document.createElement("a"); a.href = url; a.download = name;
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+    }
+    function exportExcel() {
+      if (!records.length) { alert("ยังไม่มีงาน"); return; }
+      const agg = [["งาน", "WBS", "เลขแผนผัง", "ปริมาณ", "ค่าใช้จ่าย", "จำนวนเสา 14.30", "จำนวนเสา 12.20", "ปริมาณ 185 SAC", "จำนวนจุด", "ความยาว(ม.)"]];
+      const verts = [["งาน", "ลำดับ", "lat", "long"]];
+      records.forEach(function (rec) {
+        let np = 0;
+        (rec.paths || []).forEach(function (path) { path.forEach(function (pt) { np++; verts.push([rec.job, np, +pt[1].toFixed(7), +pt[0].toFixed(7)]); }); });
+        agg.push([rec.job, rec.wbs || "", rec.drawing || "", rec.qty, rec.cost, rec.pole1430, rec.pole1220, rec.sac185, np, Math.round(rec.lengthM || 0)]);
+      });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(agg), "ข้อมูลงาน");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(verts), "พิกัดเส้น");
+      XLSX.writeFile(wb, "งาน22kV_เส้นโค้ง.xlsx");
+    }
+    function exportGeoJSON() {
+      if (!records.length) { alert("ยังไม่มีงาน"); return; }
+      const features = records.map(function (rec) {
+        const geom = rec.paths.length === 1 ? { type: "LineString", coordinates: rec.paths[0] } : { type: "MultiLineString", coordinates: rec.paths };
+        return { type: "Feature", geometry: geom, properties: {
+          job: rec.job, wbs: rec.wbs || "", drawing: rec.drawing || "",
+          qty: rec.qty, cost: rec.cost, pole1430: rec.pole1430, pole1220: rec.pole1220, sac185: rec.sac185, lengthM: Math.round(rec.lengthM || 0) } };
+      });
+      download("งาน22kV_เส้นโค้ง.geojson", JSON.stringify({ type: "FeatureCollection", features: features }, null, 2), "application/geo+json");
+    }
+
+    // ---------- Import ----------
+    function findCol(headers, keys) {
+      const norm = headers.map(function (h) { return (h == null ? "" : String(h)).trim().toLowerCase(); });
+      for (let i = 0; i < norm.length; i++) for (let k = 0; k < keys.length; k++) if (norm[i] === keys[k].toLowerCase()) return i;
+      return -1;
+    }
+    function num(v) { if (v == null || v === "") return null; const n = Number(String(v).replace(/,/g, "")); return isNaN(n) ? null : n; }
+
+    function importExcel(wb, replace) {
+      const vName = wb.SheetNames.indexOf("พิกัดเส้น") >= 0 ? "พิกัดเส้น" : null;
+      if (!vName) { alert("ไม่พบชีต 'พิกัดเส้น' ในไฟล์"); return; }
+      const vrows = XLSX.utils.sheet_to_json(wb.Sheets[vName], { header: 1, defval: null });
+      const vh = vrows[0];
+      const cJob = findCol(vh, ["งาน"]), cSeq = findCol(vh, ["ลำดับ", "seq"]), cLat = findCol(vh, ["lat"]), cLng = findCol(vh, ["long", "lng"]);
+      if (cJob < 0 || cLat < 0 || cLng < 0) { alert("ชีต 'พิกัดเส้น' ต้องมีคอลัมน์ งาน, lat, long"); return; }
+      const byJob = {};
+      for (let r = 1; r < vrows.length; r++) {
+        const row = vrows[r]; if (!row) continue;
+        const job = row[cJob]; const lat = num(row[cLat]); const lng = num(row[cLng]);
+        if (job == null || lat == null || lng == null) continue;
+        const key = String(job).trim();
+        (byJob[key] = byJob[key] || []).push({ seq: cSeq >= 0 ? num(row[cSeq]) : 0, lat: lat, lng: lng });
+      }
+      // aggregate sheet
+      const attrByJob = {};
+      const aName = wb.SheetNames.indexOf("ข้อมูลงาน") >= 0 ? "ข้อมูลงาน" : null;
+      if (aName) {
+        const arows = XLSX.utils.sheet_to_json(wb.Sheets[aName], { header: 1, defval: null });
+        const ah = arows[0];
+        const a = {
+          job: findCol(ah, ["งาน"]), wbs: findCol(ah, ["WBS"]), drawing: findCol(ah, ["เลขแผนผัง"]),
+          qty: findCol(ah, ["ปริมาณ"]), cost: findCol(ah, ["ค่าใช้จ่าย"]),
+          p1430: findCol(ah, ["จำนวนเสา 14.30"]), p1220: findCol(ah, ["จำนวนเสา 12.20"]), sac: findCol(ah, ["ปริมาณ 185 SAC"])
+        };
+        for (let r = 1; r < arows.length; r++) {
+          const row = arows[r]; if (!row || row[a.job] == null) continue;
+          attrByJob[String(row[a.job]).trim()] = {
+            wbs: a.wbs >= 0 && row[a.wbs] != null ? String(row[a.wbs]) : "",
+            drawing: a.drawing >= 0 && row[a.drawing] != null ? String(row[a.drawing]) : "",
+            qty: a.qty >= 0 ? num(row[a.qty]) : null, cost: a.cost >= 0 ? num(row[a.cost]) : null,
+            pole1430: a.p1430 >= 0 ? num(row[a.p1430]) : null, pole1220: a.p1220 >= 0 ? num(row[a.p1220]) : null,
+            sac185: a.sac >= 0 ? num(row[a.sac]) : null
+          };
+        }
+      }
+      const recs = [];
+      Object.keys(byJob).forEach(function (job) {
+        const pts = byJob[job].sort(function (x, y) { return (x.seq || 0) - (y.seq || 0); });
+        const path = pts.map(function (p) { return [p.lng, p.lat]; });
+        const attr = attrByJob[job] || {};
+        recs.push(Object.assign({ id: seq++, job: job, paths: [path], lengthM: geodesicOf(path) }, attr));
+      });
+      finishImport(recs, replace);
+    }
+    function importGeoJSON(gj, replace) {
+      if (!gj || !gj.features) { if (!replace) alert("ไฟล์ GeoJSON ไม่ถูกต้อง"); return; }
+      const recs = [];
+      gj.features.forEach(function (f) {
+        if (!f.geometry) return;
+        let paths = [];
+        if (f.geometry.type === "LineString") paths = [f.geometry.coordinates];
+        else if (f.geometry.type === "MultiLineString") paths = f.geometry.coordinates;
+        else return;
+        const p = f.properties || {};
+        recs.push({ id: seq++, job: p.job || ("งาน " + seq), wbs: p.wbs || "", drawing: p.drawing || "", qty: p.qty, cost: p.cost, pole1430: p.pole1430, pole1220: p.pole1220, sac185: p.sac185, paths: paths, lengthM: geodesicOf(paths[0]) });
+      });
+      finishImport(recs, replace);
+    }
+    function geodesicOf(path) {
+      try { const wm = webMercatorUtils.geographicToWebMercator(new Polyline({ paths: [path], spatialReference: { wkid: 4326 } })); return geometryEngine.geodesicLength(wm, "meters"); } catch (e) { return 0; }
+    }
+
+    // ---------- OSRM snap-to-road (public demo, ฟรี ไม่ต้อง key) ----------
+    function showBusy(on, msg) {
+      const h = document.getElementById("hint");
+      if (!h) return;
+      h.textContent = msg || "⏳ กำลังดึงแนวถนน (OSRM)...";
+      h.style.display = on ? "block" : "none";
+    }
+    function snapToRoad(pts) {
+      showBusy(true);
+      const coordStr = pts.map(function (c) { return c[0].toFixed(6) + "," + c[1].toFixed(6); }).join(";");
+      const url = "https://router.project-osrm.org/route/v1/driving/" + coordStr + "?overview=full&geometries=geojson";
+      fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+        showBusy(false);
+        if (data && data.code === "Ok" && data.routes && data.routes[0] && data.routes[0].geometry) {
+          pendingPaths = [data.routes[0].geometry.coordinates];   // แนวถนนจริง [[lng,lat],...]
+          pendingLen = data.routes[0].distance;                   // ระยะตามถนน (เมตร)
+        } else {
+          pendingPaths = [pts]; pendingLen = geodesicOf(pts);
+          alert("snap ตามถนนไม่สำเร็จ (" + ((data && data.code) || "error") + ") — ใช้เส้นตรงแทน");
+        }
+        openForm(null);
+      }).catch(function (err) {
+        showBusy(false);
+        pendingPaths = [pts]; pendingLen = geodesicOf(pts);
+        alert("เรียก OSRM ไม่ได้ (server อาจล่ม/ถูกบล็อก) — ใช้เส้นตรงแทน\n" + err.message);
+        openForm(null);
+      });
+    }
+    function finishImport(recs, replace) {
+      if (!recs.length) { if (!replace) alert("ไม่พบข้อมูลเส้นในไฟล์"); return; }
+      if (replace) {
+        records = recs;   // แทนที่เงียบๆ (ใช้ตอน auto-load จาก OneDrive)
+      } else if (records.length && !confirm("นำเข้า " + recs.length + " งาน (เพิ่มต่อจากของเดิม) ?\nกด Cancel เพื่อแทนที่ทั้งหมด")) {
+        records = recs;   // แทนที่
+      } else {
+        records = records.concat(recs);
+      }
+      window._records = records; saveLS(); rebuild(); renderDashboard();
+      if (records.length) view.goTo(routeLayer.graphics.toArray()).catch(function () {});
+    }
+
+    // ===== Auto-load ข้อมูลจาก OneDrive =====
+    function flash(msg, warn) {
+      const h = document.getElementById("hint");
+      if (!h) return;
+      h.textContent = msg; h.style.display = "block";
+      h.style.background = warn ? "rgba(160,40,40,.92)" : "rgba(41,40,102,.92)";
+      setTimeout(function () { h.style.display = "none"; h.style.background = ""; }, warn ? 8000 : 4000);
+    }
+    // ---------- Google Sheet backend (อ่าน+เขียนอัตโนมัติ) ----------
+    let applyingRemote = false, saving = false, saveTimer = null;
+    function sheetUrl() { return SHEET_API + "?token=" + encodeURIComponent(SHEET_TOKEN); }
+
+    function sheetGet() {
+      if (!SHEET_API) return;
+      fetch(sheetUrl(), { cache: "no-store" })
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(function (data) {
+          if (!Array.isArray(data)) throw new Error(data && data.error ? data.error : "รูปแบบข้อมูลผิด");
+          applyingRemote = true;
+          records = data.filter(function (d) { return d.paths && d.paths[0] && d.paths[0].length; }).map(function (d) {
+            return {
+              id: seq++, job: d.job, wbs: d.wbs || "", drawing: d.drawing || "",
+              qty: d.qty, cost: d.cost, pole1430: d.pole1430, pole1220: d.pole1220, sac185: d.sac185,
+              lengthM: d.lengthM || geodesicOf(d.paths[0]), paths: d.paths
+            };
+          });
+          window._records = records; saveLS(); rebuild(); renderDashboard();
+          applyingRemote = false;
+          flash("✓ ดึงข้อมูลจาก Google Sheet แล้ว (" + records.length + " งาน)");
+        })
+        .catch(function (err) { flash("⚠ ดึงจาก Sheet ไม่ได้: " + err.message + " — ใช้ข้อมูลในเครื่อง", true); });
+    }
+
+    function scheduleSheetSave() {
+      if (!SHEET_API || applyingRemote) return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(sheetSave, 900);   // รวมการแก้รัวๆ แล้วค่อยเซฟ
+    }
+    function sheetSave() {
+      if (!SHEET_API) return;
+      saving = true;
+      fetch(sheetUrl(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(records) })
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); saving = false; flash("✓ บันทึกขึ้น Google Sheet แล้ว"); })
+        .catch(function (err) { saving = false; flash("⚠ บันทึกขึ้น Sheet ไม่ได้: " + err.message, true); });
+    }
+
+    // ---------- wire up ----------
+    window.addEventListener("load", function () {
+      function startDraw() {
+        if (!sketch) { alert("แผนที่ยังโหลดไม่เสร็จ รอสักครู่แล้วลองใหม่"); return; }
+        $("empty").style.display = "none";     // ซ่อน overlay ไม่ให้บังการคลิกบนแผนที่
+        sketch.create("polyline");
+      }
+      $("btnDraw").onclick = startDraw;
+      $("emptyDraw").onclick = startDraw;
+      $("snapToggle").onclick = function () {
+        snapEnabled = !snapEnabled;
+        this.textContent = "🛣️ Snap: " + (snapEnabled ? "เปิด" : "ปิด");
+        this.style.opacity = snapEnabled ? "1" : "0.55";
+      };
+      // ---- เพิ่มงานจากพิกัด เริ่มต้น-สิ้นสุด ----
+      $("btnCoord").onclick = function () {
+        $("c_latS").value = $("c_lngS").value = $("c_latE").value = $("c_lngE").value = "";
+        $("midPoints").innerHTML = "";
+        $("coordModal").style.display = "flex"; $("c_latS").focus();
+      };
+      function addMidRow() {
+        const div = document.createElement("div");
+        div.className = "midRow";
+        div.innerHTML =
+          '<div class="midHead"><label>🔵 จุดกลาง</label><span class="midDel" title="ลบจุดกลาง">✕</span></div>' +
+          '<div class="grid2"><input class="mid-lat" type="number" step="any" placeholder="lat" />' +
+          '<input class="mid-lng" type="number" step="any" placeholder="long" /></div>';
+        div.querySelector(".midDel").onclick = function () { div.remove(); };
+        $("midPoints").appendChild(div);
+        div.querySelector(".mid-lat").focus();
+      }
+      $("addMid").onclick = addMidRow;
+      $("coordCancel").onclick = function () { $("coordModal").style.display = "none"; };
+      $("coordCalc").onclick = function () {
+        const latS = parseFloat($("c_latS").value), lngS = parseFloat($("c_lngS").value),
+              latE = parseFloat($("c_latE").value), lngE = parseFloat($("c_lngE").value);
+        if ([latS, lngS, latE, lngE].some(function (v) { return isNaN(v); })) { alert("กรอกพิกัดจุดเริ่มต้นและสิ้นสุดให้ครบ"); return; }
+        const pts = [[lngS, latS]];
+        let midHalf = false;
+        Array.prototype.forEach.call(document.querySelectorAll("#midPoints .midRow"), function (row) {
+          const la = parseFloat(row.querySelector(".mid-lat").value), lo = parseFloat(row.querySelector(".mid-lng").value);
+          if (!isNaN(la) && !isNaN(lo)) pts.push([lo, la]);
+          else if (!isNaN(la) || !isNaN(lo)) midHalf = true;   // จุดกลางกรอกครึ่งเดียว
+        });
+        pts.push([lngE, latE]);
+        if (midHalf && !confirm("มีจุดกลางที่กรอก lat/long ไม่ครบ จะข้ามจุดนั้น — ไปต่อไหม?")) return;
+        const outRange = pts.some(function (p) { return p[1] < 5 || p[1] > 21 || p[0] < 97 || p[0] > 106; });
+        if (outRange && !confirm("มีพิกัดนอกช่วงประเทศไทย (lat 5–21, long 97–106) — ใช้ต่อไหม?")) return;
+        $("coordModal").style.display = "none";
+        $("empty").style.display = "none";
+        editingId = null;
+        const lons = pts.map(function (p) { return p[0]; }), lats = pts.map(function (p) { return p[1]; });
+        view.goTo({ center: [(Math.min.apply(null, lons) + Math.max.apply(null, lons)) / 2,
+          (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2], zoom: 13 }).catch(function () {});
+        if (snapEnabled) { snapToRoad(pts); }
+        else { pendingPaths = [pts]; pendingLen = geodesicOf(pts); openForm(null); }
+      };
+      $("sideToggle").onclick = function () {
+        const s = document.getElementById("side");
+        s.classList.toggle("collapsed");
+        this.textContent = s.classList.contains("collapsed") ? "▶" : "◀";
+      };
+      $("saveBtn").onclick = saveForm;
+      $("cancelBtn").onclick = closeForm;
+      $("btnXlsx").onclick = exportExcel;
+      $("btnGeojson").onclick = exportGeoJSON;
+      $("btnImport").onclick = function () { $("fileInput").click(); };
+      $("fileInput").onchange = function (e) {
+        const f = e.target.files[0]; if (!f) return;
+        const reader = new FileReader();
+        const isGeo = /\.(geojson|json)$/i.test(f.name);
+        reader.onload = function (ev) {
+          try {
+            if (isGeo) importGeoJSON(JSON.parse(ev.target.result));
+            else importExcel(XLSX.read(new Uint8Array(ev.target.result), { type: "array" }));
+          } catch (err) { alert("อ่านไฟล์ไม่สำเร็จ: " + err.message); }
+          e.target.value = "";
+        };
+        if (isGeo) reader.readAsText(f); else reader.readAsArrayBuffer(f);
+      };
+    });
+  </script>
+</body>
+</html>
