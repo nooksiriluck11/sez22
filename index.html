@@ -80,6 +80,10 @@
     #jobTable th:first-child, #jobTable td.jobCell { width:210px; min-width:210px; white-space:normal; vertical-align:top; }
     .jobName { line-height:1.3; word-break:break-word; overflow-wrap:anywhere; }  /* แสดงครบ ไม่ตัดท้าย */
     #jobTable .miniBtn { padding:1px 2px; font-size:12px; }
+    /* badge สถานะ */
+    .badge { display:inline-block; padding:2px 9px; border-radius:11px; font-size:10.5px; font-weight:600; white-space:nowrap; }
+    .badge.ok { background:#e4f5ec; color:#1f7a4d; }
+    .badge.no { background:#fdece9; color:#c0392b; }
     tr.jobRow { cursor:pointer; }
     tr.jobRow:hover { background:#f6f4fb; }
     tr.jobRow.active { background:#eee9f7; }
@@ -106,11 +110,11 @@
     #modal { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100;
       display:none; align-items:center; justify-content:center; }
     #modalCard { background:#fff; border-radius:10px; width:340px; padding:18px 20px;
-      box-shadow:0 10px 30px rgba(0,0,0,.3); }
+      box-shadow:0 10px 30px rgba(0,0,0,.3); max-height:90vh; overflow:auto; }
     #modalCard h2 { margin:0 0 14px; font-size:16px; color:var(--purple-deep); }
     #modalCard label { display:block; font-size:12px; color:#555; margin:8px 0 3px; }
-    #modalCard input { width:100%; box-sizing:border-box; padding:7px 8px; border:1px solid #ccc;
-      border-radius:5px; font-size:13px; font-family:inherit; }
+    #modalCard input, #modalCard select { width:100%; box-sizing:border-box; padding:7px 8px; border:1px solid #ccc;
+      border-radius:5px; font-size:13px; font-family:inherit; background:#fff; }
     #modalCard .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     #modalBtns { display:flex; gap:8px; margin-top:16px; }
     #modalBtns button { flex:1; padding:9px; border-radius:6px; border:none; cursor:pointer; font-size:13px; font-weight:600; }
@@ -192,7 +196,16 @@
       </div>
       <div class="grid2">
         <div><label>ปริมาณ (วงจร-กม.)</label><input id="f_qty" type="number" step="any" /></div>
-        <div><label>ค่าใช้จ่าย (บาท)</label><input id="f_cost" type="number" step="any" /></div>
+        <div><label>ค่าใช้จ่ายรวม (บาท)</label><input id="f_cost" type="number" step="any" /></div>
+      </div>
+      <label>ค่าใช้จ่ายหน้างาน (100%) (บาท)</label>
+      <input id="f_costsite" type="number" step="any" />
+      <label>สถานะ</label>
+      <select id="f_status">
+        <option value="ยังไม่อนุมัติ">ยังไม่อนุมัติ</option>
+        <option value="อนุมัติ">อนุมัติ</option>
+      </select>
+      <div class="grid2">
         <div><label>จำนวนเสา 14.30</label><input id="f_p1430" type="number" step="any" /></div>
         <div><label>จำนวนเสา 12.20</label><input id="f_p1220" type="number" step="any" /></div>
       </div>
@@ -239,9 +252,12 @@
     const SHEET_API = "https://script.google.com/macros/s/AKfycbxDbdIchMxbP7v24j1CnA9cSAMrEgWe3u9plCM53DBZZQ0D2Pc0mIlF41trL-4mnjwB/exec";
     const SHEET_TOKEN = "sez22";       // ต้องตรงกับ TOKEN ใน Apps Script
     const AUTO_REFRESH_SEC = 30;       // ดึงข้อมูลใหม่อัตโนมัติทุกกี่วินาที (0 = ปิด)
-    const routeSymbol = { type: "simple-line", color: [25, 118, 210, 0.95], width: 4, cap: "round", join: "round" };
-    // หมุดต้นทาง/ปลายทาง: จุดกลมสีเดียวกับเส้น (น้ำเงิน) ขอบขาว
-    function nodeSymbol() { return { type: "simple-marker", style: "circle", color: [25, 118, 210, 1], size: 10, outline: { color: [255, 255, 255, 1], width: 2 } }; }
+    const routeSymbol = { type: "simple-line", color: [25, 118, 210, 0.95], width: 4, cap: "round", join: "round" };  // สีตอนวาดเส้นใหม่
+    // สีเส้นตามสถานะงาน: อนุมัติ = เขียว, ยังไม่อนุมัติ = แดง
+    function colorForStatus(status) { return status === "อนุมัติ" ? [34, 160, 76] : [224, 49, 49]; }
+    function lineSymbolFor(status) { return { type: "simple-line", color: colorForStatus(status).concat(0.95), width: 4, cap: "round", join: "round" }; }
+    // หมุดต้นทาง/ปลายทาง: จุดกลมสีเดียวกับเส้น (ตามสถานะ) ขอบขาว
+    function nodeSymbolFor(status) { return { type: "simple-marker", style: "circle", color: colorForStatus(status).concat(1), size: 10, outline: { color: [255, 255, 255, 1], width: 2 } }; }
 
     require([
       "esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer", "esri/layers/MapImageLayer", "esri/widgets/Sketch/SketchViewModel",
@@ -388,7 +404,9 @@
         tipRow("เลขแผนผัง", rec.drawing) +
         tipRow("ระยะทาง", Math.round(rec.lengthM || 0), "ม.") +
         tipRow("ปริมาณ", rec.qty, "วงจร-กม.") +
-        tipRow("ค่าใช้จ่าย", rec.cost, "บาท") +
+        tipRow("ค่าใช้จ่ายรวม", rec.cost, "บาท") +
+        tipRow("ค่าใช้จ่ายหน้างาน (100%)", rec.costSite, "บาท") +
+        tipRow("สถานะ", rec.status || "ยังไม่อนุมัติ") +
         tipRow("จำนวนเสา 14.30", rec.pole1430, "ต้น") +
         tipRow("จำนวนเสา 12.20", rec.pole1220, "ต้น") +
         tipRow("ปริมาณ 185 SAC", rec.sac185, "เมตร") + "</table>";
@@ -411,7 +429,7 @@
       const wm = webMercatorUtils.geographicToWebMercator(
         new Polyline({ paths: rec.paths, spatialReference: { wkid: 4326 } }));
       return new Graphic({
-        geometry: wm, symbol: routeSymbol,
+        geometry: wm, symbol: lineSymbolFor(rec.status),
         attributes: { id: rec.id, job: rec.job }, popupTemplate: makePopup(rec)
       });
     }
@@ -422,7 +440,9 @@
           rowHtml("เลขแผนผัง", rec.drawing) +
           rowHtml("ระยะทาง", Math.round(rec.lengthM || 0), "ม.") +
           rowHtml("ปริมาณ", rec.qty, "วงจร-กม.") +
-          rowHtml("ค่าใช้จ่าย", rec.cost, "บาท") +
+          rowHtml("ค่าใช้จ่ายรวม", rec.cost, "บาท") +
+          rowHtml("ค่าใช้จ่ายหน้างาน (100%)", rec.costSite, "บาท") +
+          rowHtml("สถานะ", rec.status || "ยังไม่อนุมัติ") +
           rowHtml("จำนวนเสา 14.30", rec.pole1430, "ต้น") +
           rowHtml("จำนวนเสา 12.20", rec.pole1220, "ต้น") +
           rowHtml("ปริมาณ 185 SAC", rec.sac185, "เมตร") + "</table>";
@@ -449,8 +469,8 @@
       const ep = endpointsOf(rec); if (!ep) return;
       const sp = wmPoint(ep.start[0], ep.start[1]);
       const pe = wmPoint(ep.end[0], ep.end[1]);
-      routeLayer.add(new Graphic({ geometry: sp, symbol: nodeSymbol(), attributes: { id: rec.id, job: rec.job, node: "start" } }));
-      routeLayer.add(new Graphic({ geometry: pe, symbol: nodeSymbol(), attributes: { id: rec.id, job: rec.job, node: "end" } }));
+      routeLayer.add(new Graphic({ geometry: sp, symbol: nodeSymbolFor(rec.status), attributes: { id: rec.id, job: rec.job, node: "start" } }));
+      routeLayer.add(new Graphic({ geometry: pe, symbol: nodeSymbolFor(rec.status), attributes: { id: rec.id, job: rec.job, node: "end" } }));
     }
 
     // ---------- rebuild graphics ----------
@@ -475,6 +495,8 @@
       // เติม "ปริมาณ (วงจร-กม.)" อัตโนมัติจากระยะทางที่คำนวณ (งานใหม่); แก้ไขทีหลังได้
       $("f_qty").value = rec && rec.qty != null ? rec.qty : (km || "");
       $("f_cost").value = rec && rec.cost != null ? rec.cost : "";
+      $("f_costsite").value = rec && rec.costSite != null ? rec.costSite : "";
+      $("f_status").value = rec && rec.status ? rec.status : "ยังไม่อนุมัติ";
       $("f_p1430").value = rec && rec.pole1430 != null ? rec.pole1430 : "";
       $("f_p1220").value = rec && rec.pole1220 != null ? rec.pole1220 : "";
       $("f_sac").value = rec && rec.sac185 != null ? rec.sac185 : "";
@@ -500,6 +522,7 @@
       const data = {
         job: job, wbs: $("f_wbs").value.trim(), drawing: $("f_drawing").value.trim(),
         qty: numOrNull($("f_qty").value), cost: numOrNull($("f_cost").value),
+        costSite: numOrNull($("f_costsite").value), status: $("f_status").value || "ยังไม่อนุมัติ",
         pole1430: numOrNull($("f_p1430").value), pole1220: numOrNull($("f_p1220").value),
         sac185: numOrNull($("f_sac").value)
       };
@@ -552,9 +575,10 @@
         mat.map(function (c) { return stat(c, "sub"); }).join("") + '</div></div>';
     }
     function km(m) { return Math.round((m || 0) / 100) / 10; }
+    function statusBadge(s) { const ok = s === "อนุมัติ"; return '<span class="badge ' + (ok ? "ok" : "no") + '">' + (s || "ยังไม่อนุมัติ") + '</span>'; }
     function renderTable(arr) {
       document.querySelector("#jobTable thead").innerHTML =
-        "<tr><th>งาน</th><th style='text-align:left'>WBS</th><th>ปริมาณ</th><th>ค่าใช้จ่าย</th><th>เสา<br>14.30</th><th>เสา<br>12.20</th><th>185<br>SAC</th><th></th></tr>";
+        "<tr><th>งาน</th><th style='text-align:left'>WBS</th><th>ปริมาณ</th><th>ค่าใช้จ่ายรวม<br>(บาท)</th><th>ค่าใช้จ่าย<br>หน้างาน<br>(100%)</th><th>สถานะ</th><th>เสา<br>14.30</th><th>เสา<br>12.20</th><th>185<br>SAC</th><th></th></tr>";
       const tb = document.querySelector("#jobTable tbody");
       tb.innerHTML = arr.map(function (d) {
         return '<tr class="jobRow" data-id="' + d.id + '">' +
@@ -562,6 +586,8 @@
           '<td title="' + String(d.wbs || "").replace(/"/g, "&quot;") + '">' + (d.wbs || "") + '</td>' +
           '<td class="num">' + fmt(d.qty) + '</td>' +
           '<td class="num" title="' + fmt(d.cost) + ' บาท">' + fmt(d.cost == null ? null : Math.round(d.cost)) + '</td>' +
+          '<td class="num" title="' + fmt(d.costSite) + ' บาท">' + fmt(d.costSite == null ? null : Math.round(d.costSite)) + '</td>' +
+          '<td>' + statusBadge(d.status) + '</td>' +
           '<td class="num">' + fmt(d.pole1430) + '</td>' +
           '<td class="num">' + fmt(d.pole1220) + '</td>' +
           '<td class="num">' + fmt(d.sac185) + '</td>' +
@@ -574,6 +600,8 @@
         '<tr><td>รวม (' + arr.length + ' งาน)</td><td></td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.qty; })) + '</td>' +
         '<td class="num" title="' + fmt(sum(arr, function (d) { return d.cost; })) + ' บาท">' + fmt(Math.round(sum(arr, function (d) { return d.cost; }))) + '</td>' +
+        '<td class="num" title="' + fmt(sum(arr, function (d) { return d.costSite; })) + ' บาท">' + fmt(Math.round(sum(arr, function (d) { return d.costSite; }))) + '</td>' +
+        '<td></td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.pole1430; })) + '</td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.pole1220; })) + '</td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.sac185; })) + '</td><td></td></tr>'
@@ -680,7 +708,8 @@
           records = data.filter(function (d) { return d.paths && d.paths[0] && d.paths[0].length; }).map(function (d) {
             return {
               id: seq++, job: d.job, wbs: d.wbs || "", drawing: d.drawing || "",
-              qty: d.qty, cost: d.cost, pole1430: d.pole1430, pole1220: d.pole1220, sac185: d.sac185,
+              qty: d.qty, cost: d.cost, costSite: d.costSite, status: d.status || "ยังไม่อนุมัติ",
+              pole1430: d.pole1430, pole1220: d.pole1220, sac185: d.sac185,
               lengthM: d.lengthM || geodesicOf(d.paths[0]), paths: d.paths
             };
           });
