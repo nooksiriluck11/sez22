@@ -326,8 +326,16 @@
         if (lineG) lineG.geometry = wm;                                   // เส้นขยับตามทันที
         rec.lengthM = geometryEngine.geodesicLength(wm, "meters");
         if (e.state === "complete") {
-          nodeMoveBackup = null; saveLS();
-          setTimeout(function () { rebuild(); renderDashboard(); }, 0);   // รอ SVM เคลียร์ก่อนค่อย rebuild
+          nodeMoveBackup = null;
+          if (snapEnabled && rec.paths[0] && rec.paths[0].length >= 2) {
+            const sPt = rec.paths[0][0];
+            const lPath = rec.paths[rec.paths.length - 1];
+            const ePt = lPath[lPath.length - 1];
+            setTimeout(function () { resnapRecord(rec, [sPt, ePt]); }, 0);   // คำนวณเส้นทางใหม่ตามถนน
+          } else {
+            saveLS();
+            setTimeout(function () { rebuild(); renderDashboard(); }, 0);
+          }
         }
       });
 
@@ -624,6 +632,30 @@
         pendingPaths = [pts]; pendingLen = geodesicOf(pts);
         alert("เรียก OSRM ไม่ได้ (server อาจล่ม/ถูกบล็อก) — ใช้เส้นตรงแทน\n" + err.message);
         openForm(null);
+      });
+    }
+    // คำนวณเส้นทางตามถนนใหม่ให้งานเดิม (ใช้ตอนลากจุดต้น/ปลาย) แล้วบันทึก
+    function resnapRecord(rec, pts) {
+      showBusy(true, "⏳ คำนวณเส้นทางใหม่ตามถนน...");
+      saving = true;   // กันไม่ให้ auto-refresh ทับระหว่างรอผล
+      const coordStr = pts.map(function (c) { return c[0].toFixed(6) + "," + c[1].toFixed(6); }).join(";");
+      const url = "https://router.project-osrm.org/route/v1/driving/" + coordStr + "?overview=full&geometries=geojson";
+      function finish() { saving = false; saveLS(); rebuild(); renderDashboard(); }
+      fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+        showBusy(false);
+        if (data && data.code === "Ok" && data.routes && data.routes[0] && data.routes[0].geometry) {
+          rec.paths = [data.routes[0].geometry.coordinates];
+          rec.lengthM = data.routes[0].distance;
+        } else {
+          rec.paths = [pts]; rec.lengthM = geodesicOf(pts);
+          flash("snap ตามถนนไม่สำเร็จ — ใช้เส้นตรงแทน", true);
+        }
+        finish();
+      }).catch(function (err) {
+        showBusy(false);
+        rec.paths = [pts]; rec.lengthM = geodesicOf(pts);
+        flash("เรียก OSRM ไม่ได้ — ใช้เส้นตรงแทน", true);
+        finish();
       });
     }
     // ===== แจ้งเตือนบนแผนที่ =====
