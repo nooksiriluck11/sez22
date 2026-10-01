@@ -99,12 +99,12 @@
     /* tooltip ตอนเอาเมาส์ชี้เส้น */
     #tip { position:absolute; z-index:30; pointer-events:none; display:none;
       background:#fff; border:1px solid #ddd; border-top:3px solid var(--purple-deep); border-radius:8px;
-      box-shadow:0 6px 20px rgba(41,40,102,.22); padding:9px 12px; font-size:12.5px; max-width:240px; }
-    #tip .tipTitle { font-weight:700; color:var(--purple-deep); margin-bottom:6px; font-size:13.5px; }
-    #tip table { width:100%; border-collapse:collapse; }
-    #tip td { padding:1px 0; border:none; }
-    #tip td.k { color:#777; padding-right:14px; }
-    #tip td.v { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+      box-shadow:0 6px 20px rgba(41,40,102,.22); padding:9px 12px; font-size:12.5px; width:280px; max-width:280px; box-sizing:border-box; }
+    #tip .tipTitle { font-weight:700; color:var(--purple-deep); margin-bottom:6px; font-size:13.5px; word-break:break-word; }
+    #tip table { width:100%; table-layout:fixed; border-collapse:collapse; }
+    #tip td { padding:1px 0; border:none; vertical-align:top; }
+    #tip td.k { width:44%; color:#777; padding-right:12px; word-break:break-word; }
+    #tip td.v { width:56%; text-align:right; font-variant-numeric:tabular-nums; word-break:break-word; overflow-wrap:anywhere; }
 
     /* Modal ฟอร์มงาน */
     #modal { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100;
@@ -434,8 +434,11 @@
       });
     }
     function makePopup(rec) {
+      // คืนค่าเป็น DOM element (ไม่ใช่ string) เพื่อไม่ให้ ArcGIS ลบ inline style ทิ้ง
       return { title: rec.job, overwriteActions: true, actions: [], content: function () {
-        return "<table style='font-size:13px'>" +
+        const div = document.createElement("div");
+        div.style.cssText = "width:280px;max-width:100%";
+        div.innerHTML = "<table style='font-size:13px;width:100%;table-layout:fixed;border-collapse:collapse'>" +
           rowHtml("WBS", rec.wbs) +
           rowHtml("เลขแผนผัง", rec.drawing) +
           rowHtml("ระยะทาง", Math.round(rec.lengthM || 0), "ม.") +
@@ -446,10 +449,15 @@
           rowHtml("จำนวนเสา 14.30", rec.pole1430, "ต้น") +
           rowHtml("จำนวนเสา 12.20", rec.pole1220, "ต้น") +
           rowHtml("ปริมาณ 185 SAC", rec.sac185, "เมตร") + "</table>";
+        return div;
       } };
     }
     function totalPts(rec) { let n = 0; (rec.paths || []).forEach(function (p) { n += p.length; }); return n; }
-    function rowHtml(l, v, u) { return "<tr><td style='color:#777;padding:2px 10px 2px 0'>" + l + "</td><td style='text-align:right;white-space:nowrap'>" + fmt(v) + (u ? " <span style='color:#999'>" + u + "</span>" : "") + "</td></tr>"; }
+    function rowHtml(l, v, u) {
+      return "<tr>" +
+        "<td style='box-sizing:border-box;width:45%;color:#777;padding:2px 10px 2px 0;vertical-align:top;word-break:break-word'>" + l + "</td>" +
+        "<td style='box-sizing:border-box;width:55%;text-align:right;vertical-align:top;word-break:break-word;overflow-wrap:anywhere'>" + fmt(v) + (u ? " <span style='color:#999'>" + u + "</span>" : "") + "</td></tr>";
+    }
     function fmt(v) { return (v == null || v === "") ? "-" : (typeof v === "number" ? v.toLocaleString("th-TH") : v); }
 
     // จุดต้นทาง-ปลายทางของเส้น (geographic lng/lat)
