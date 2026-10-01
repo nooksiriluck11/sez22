@@ -11,7 +11,6 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://js.arcgis.com/4.17/esri/themes/light/main.css" />
   <script src="https://js.arcgis.com/4.17/"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <style>
     :root {
@@ -75,6 +74,12 @@
     th { position:sticky; top:0; background:#fff; color:#8b8393; z-index:1; text-align:right; font-weight:600; border-bottom:1.5px solid #e9e5f2; }
     th:first-child { text-align:left; }
     td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    /* คอลัมน์อื่นกว้างพอดีเนื้อหา (nowrap) ; คอลัมน์งานกว้างคงที่ แสดงชื่อเต็มโดยตัดขึ้นบรรทัดใหม่ */
+    #jobTable { table-layout:auto; width:100%; }
+    #jobTable th, #jobTable td { padding:7px 8px; white-space:nowrap; }
+    #jobTable th:first-child, #jobTable td.jobCell { width:210px; min-width:210px; white-space:normal; vertical-align:top; }
+    .jobName { line-height:1.3; word-break:break-word; overflow-wrap:anywhere; }  /* แสดงครบ ไม่ตัดท้าย */
+    #jobTable .miniBtn { padding:1px 2px; font-size:12px; }
     tr.jobRow { cursor:pointer; }
     tr.jobRow:hover { background:#f6f4fb; }
     tr.jobRow.active { background:#eee9f7; }
@@ -151,10 +156,6 @@
       <button class="hbtn" id="snapToggle" title="เปิด/ปิด snap ตามถนน (OSRM)">🛣️ Snap: เปิด</button>
       <button class="hbtn" id="btnCoord" title="เพิ่มงานจากพิกัด เริ่มต้น-สิ้นสุด">📍 ใส่พิกัด</button>
       <div class="spacer"></div>
-      <input type="file" id="fileInput" accept=".xlsx,.xls,.geojson,.json" style="display:none" />
-      <button class="hbtn" id="btnImport">⬆︎ Import</button>
-      <button class="hbtn" id="btnXlsx">⬇︎ Excel</button>
-      <button class="hbtn" id="btnGeojson">⬇︎ GeoJSON</button>
     </div>
 
     <div id="main">
@@ -229,7 +230,7 @@
   </div>
 
   <script>
-    let view, sketch, routeLayer, Graphic, Polyline, SimpleLineSymbol, webMercatorUtils, geometryEngine;
+    let view, sketch, routeLayer, Graphic, Polyline, SimpleLineSymbol, webMercatorUtils, geometryEngine, Point;
     let records = [];               // {id, job, qty, cost, pole1430, pole1220, sac185, paths(lat/long), lengthM}
     let graphicsById = {};
     let pendingPaths = null, pendingLen = 0, editingId = null, seq = 1, snapEnabled = true;
@@ -238,15 +239,17 @@
     const SHEET_API = "https://script.google.com/macros/s/AKfycbxDbdIchMxbP7v24j1CnA9cSAMrEgWe3u9plCM53DBZZQ0D2Pc0mIlF41trL-4mnjwB/exec";
     const SHEET_TOKEN = "sez22";       // ต้องตรงกับ TOKEN ใน Apps Script
     const AUTO_REFRESH_SEC = 30;       // ดึงข้อมูลใหม่อัตโนมัติทุกกี่วินาที (0 = ปิด)
-    const routeSymbol = { type: "simple-line", color: [240, 92, 79, 0.95], width: 4, cap: "round", join: "round" };
+    const routeSymbol = { type: "simple-line", color: [25, 118, 210, 0.95], width: 4, cap: "round", join: "round" };
+    // หมุดต้นทาง/ปลายทาง: จุดกลมสีเดียวกับเส้น (น้ำเงิน) ขอบขาว
+    function nodeSymbol() { return { type: "simple-marker", style: "circle", color: [25, 118, 210, 1], size: 10, outline: { color: [255, 255, 255, 1], width: 2 } }; }
 
     require([
-      "esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer", "esri/layers/MapImageLayer", "esri/widgets/Sketch",
+      "esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer", "esri/layers/MapImageLayer", "esri/widgets/Sketch/SketchViewModel",
       "esri/Graphic", "esri/geometry/Polyline", "esri/symbols/SimpleLineSymbol",
-      "esri/geometry/support/webMercatorUtils", "esri/geometry/geometryEngine",
+      "esri/geometry/support/webMercatorUtils", "esri/geometry/geometryEngine", "esri/geometry/Point",
       "esri/widgets/ScaleBar", "esri/widgets/Home"
-    ], function (Map, MapView, GraphicsLayer, MapImageLayer, Sketch, _G, _PL, _SLS, _wm, _ge, ScaleBar, Home) {
-      Graphic = _G; Polyline = _PL; SimpleLineSymbol = _SLS; webMercatorUtils = _wm; geometryEngine = _ge;
+    ], function (Map, MapView, GraphicsLayer, MapImageLayer, SketchViewModel, _G, _PL, _SLS, _wm, _ge, _Pt, ScaleBar, Home) {
+      Graphic = _G; Polyline = _PL; SimpleLineSymbol = _SLS; webMercatorUtils = _wm; geometryEngine = _ge; Point = _Pt;
 
       // ===== Basemap (แผนที่พื้นฐานสะอาดของ Esri) =====
       const map = new Map({ basemap: "streets-vector" });
@@ -274,15 +277,15 @@
       routeLayer = new GraphicsLayer({ title: "งานก่อสร้าง 22kV" });
       map.add(routeLayer);   // อยู่บนสุด
 
-      sketch = new Sketch({
-        view: view, layer: routeLayer, creationMode: "single",
-        availableCreateTools: ["polyline"],
-        visibleElements: { createTools: { point:false, polyline:true, polygon:false, rectangle:false, circle:false }, settingsMenu:false }
+      // SketchViewModel = วาดเส้นได้โดยไม่มีกล่องเครื่องมือ (toolbar) บนแผนที่
+      sketch = new SketchViewModel({
+        view: view, layer: routeLayer,
+        polylineSymbol: routeSymbol,
+        defaultUpdateOptions: { tool: "move", enableRotation: false, enableScaling: false, multipleSelectionEnabled: false, toggleToolOnClick: false }
       });
-      sketch.viewModel.polylineSymbol = routeSymbol;
-      view.ui.add(sketch, "top-right");
       view.ui.add(new Home({ view: view }), "top-left");
       view.ui.add(new ScaleBar({ view: view, unit: "metric" }), "bottom-left");
+      view.popup.autoOpenEnabled = false;   // คุม popup เอง: คลิกเส้น=รายละเอียด, คลิกจุด=ลากย้าย
 
       // วาดเส้นใหม่เสร็จ -> เปิดฟอร์ม
       sketch.on("create", function (e) {
@@ -300,20 +303,49 @@
           }
         }
       });
-      // แก้แนวเส้นเดิมเสร็จ -> อัปเดตพิกัด
+
+      // อนุญาตให้ขยับได้เฉพาะ "จุดต้น/ปลาย" เท่านั้น (ห้ามดัดรูปทรงของเส้น)
+      let nodeMoveBackup = null;
       sketch.on("update", function (e) {
-        if (e.state === "complete") {
-          e.graphics.forEach(function (g) {
-            const rec = records.find(function (r) { return r.id === g.attributes.id; });
-            if (rec) { rec.paths = toLatLng(g.geometry); rec.lengthM = geometryEngine.geodesicLength(g.geometry, "meters"); }
-          });
-          saveLS(); renderDashboard();
+        const g = e.graphics && e.graphics[0];
+        if (!g || !g.attributes || g.attributes.node == null) { sketch.cancel(); return; }  // ไม่ใช่จุดต้น/ปลาย -> ยกเลิก
+        const rec = records.find(function (r) { return r.id === g.attributes.id; });
+        if (!rec || !rec.paths || !rec.paths.length) return;
+        if (e.state === "start") { nodeMoveBackup = JSON.parse(JSON.stringify(rec.paths)); }
+        if (e.state === "cancel") {
+          if (nodeMoveBackup) { rec.paths = nodeMoveBackup; nodeMoveBackup = null; }
+          setTimeout(function () { rebuild(); renderDashboard(); }, 0);   // รอ SVM เคลียร์ก่อนค่อย rebuild
+          return;
         }
+        // start / active / complete : ย้ายปลายนั้นไปตามหมุด
+        const geo = webMercatorUtils.webMercatorToGeographic(g.geometry);
+        if (g.attributes.node === "start") { rec.paths[0][0] = [geo.x, geo.y]; }
+        else { const lp = rec.paths[rec.paths.length - 1]; lp[lp.length - 1] = [geo.x, geo.y]; }
+        const wm = webMercatorUtils.geographicToWebMercator(new Polyline({ paths: rec.paths, spatialReference: { wkid: 4326 } }));
+        const lineG = graphicsById[rec.id];
+        if (lineG) lineG.geometry = wm;                                   // เส้นขยับตามทันที
+        rec.lengthM = geometryEngine.geodesicLength(wm, "meters");
+        if (e.state === "complete") {
+          nodeMoveBackup = null; saveLS();
+          setTimeout(function () { rebuild(); renderDashboard(); }, 0);   // รอ SVM เคลียร์ก่อนค่อย rebuild
+        }
+      });
+
+      // คลิกจุดต้น/ปลาย = เริ่มลากย้าย ; คลิกเส้น = เปิดรายละเอียด
+      view.on("click", function (event) {
+        if (sketch && sketch.state === "active") return;   // กำลังวาด/ย้ายอยู่ ข้ามไป
+        view.hitTest(event).then(function (resp) {
+          const hits = resp.results.filter(function (r) { return r.graphic && r.graphic.layer === routeLayer; });
+          const node = hits.find(function (r) { return r.graphic.attributes && r.graphic.attributes.node != null; });
+          if (node) { sketch.update([node.graphic], { tool: "move" }); return; }
+          const line = hits.find(function (r) { return r.graphic.symbol && r.graphic.symbol.type === "simple-line" && r.graphic.attributes && r.graphic.attributes.id != null; });
+          if (line) { view.popup.open({ features: [line.graphic], location: event.mapPoint }); }
+        }).catch(function () {});
       });
 
       // เอาเมาส์ชี้เส้น -> โชว์ tooltip ทันที (ไม่ต้องคลิก)
       view.on("pointer-move", function (event) {
-        if (sketch && sketch.viewModel.state === "active") { hideTip(); return; }   // กำลังวาดอยู่ ไม่ต้องโชว์
+        if (sketch && sketch.state === "active") { hideTip(); return; }   // กำลังวาด/ย้ายอยู่ ไม่ต้องโชว์
         view.hitTest(event).then(function (resp) {
           const hit = resp.results.find(function (r) {
             return r.graphic && r.graphic.layer === routeLayer && r.graphic.attributes && r.graphic.attributes.id != null;
@@ -333,6 +365,7 @@
         sheetGet();                      // ดึงล่าสุดจาก Google Sheet มาทับ
         if (AUTO_REFRESH_SEC > 0) setInterval(function () {
           if (saving) return;            // กำลังเซฟอยู่ ข้ามรอบนี้
+          if (sketch && sketch.state === "active") return;  // กำลังวาด/ลากจุดอยู่
           if ($("modal").style.display === "flex" || $("coordModal").style.display === "flex") return; // กำลังกรอกฟอร์ม
           sheetGet();
         }, AUTO_REFRESH_SEC * 1000);
@@ -391,10 +424,34 @@
     function rowHtml(l, v, u) { return "<tr><td style='color:#777;padding:2px 10px 2px 0'>" + l + "</td><td style='text-align:right;white-space:nowrap'>" + fmt(v) + (u ? " <span style='color:#999'>" + u + "</span>" : "") + "</td></tr>"; }
     function fmt(v) { return (v == null || v === "") ? "-" : (typeof v === "number" ? v.toLocaleString("th-TH") : v); }
 
+    // จุดต้นทาง-ปลายทางของเส้น (geographic lng/lat)
+    function endpointsOf(rec) {
+      const paths = rec.paths || [];
+      if (!paths.length || !paths[0] || !paths[0].length) return null;
+      const first = paths[0][0];
+      const lastPath = paths[paths.length - 1];
+      const last = lastPath[lastPath.length - 1];
+      return { start: first, end: last };
+    }
+    function wmPoint(lng, lat) {
+      return webMercatorUtils.geographicToWebMercator(new Point({ x: lng, y: lat, spatialReference: { wkid: 4326 } }));
+    }
+    // เพิ่มหมุดต้นทาง/ปลายทาง + ป้ายชื่องาน ลงบน routeLayer
+    function addEndpointGraphics(rec) {
+      const ep = endpointsOf(rec); if (!ep) return;
+      const sp = wmPoint(ep.start[0], ep.start[1]);
+      const pe = wmPoint(ep.end[0], ep.end[1]);
+      routeLayer.add(new Graphic({ geometry: sp, symbol: nodeSymbol(), attributes: { id: rec.id, job: rec.job, node: "start" } }));
+      routeLayer.add(new Graphic({ geometry: pe, symbol: nodeSymbol(), attributes: { id: rec.id, job: rec.job, node: "end" } }));
+    }
+
     // ---------- rebuild graphics ----------
     function rebuild() {
       routeLayer.removeAll(); graphicsById = {};
-      records.forEach(function (rec) { const g = recordToGraphic(rec); routeLayer.add(g); graphicsById[rec.id] = g; });
+      records.forEach(function (rec) {
+        const g = recordToGraphic(rec); routeLayer.add(g); graphicsById[rec.id] = g;
+        addEndpointGraphics(rec);
+      });
       document.getElementById("empty").style.display = records.length ? "none" : "";
     }
 
@@ -493,10 +550,10 @@
       const tb = document.querySelector("#jobTable tbody");
       tb.innerHTML = arr.map(function (d) {
         return '<tr class="jobRow" data-id="' + d.id + '">' +
-          '<td>' + d.job + '</td>' +
-          '<td>' + (d.wbs || "") + '</td>' +
+          '<td class="jobCell"><div class="jobName" title="' + String(d.job || "").replace(/"/g, "&quot;") + '">' + d.job + '</div></td>' +
+          '<td title="' + String(d.wbs || "").replace(/"/g, "&quot;") + '">' + (d.wbs || "") + '</td>' +
           '<td class="num">' + fmt(d.qty) + '</td>' +
-          '<td class="num">' + fmt(d.cost) + '</td>' +
+          '<td class="num" title="' + fmt(d.cost) + ' บาท">' + fmt(d.cost == null ? null : Math.round(d.cost)) + '</td>' +
           '<td class="num">' + fmt(d.pole1430) + '</td>' +
           '<td class="num">' + fmt(d.pole1220) + '</td>' +
           '<td class="num">' + fmt(d.sac185) + '</td>' +
@@ -508,7 +565,7 @@
       document.querySelector("#jobTable tfoot").innerHTML = arr.length ? (
         '<tr><td>รวม (' + arr.length + ' งาน)</td><td></td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.qty; })) + '</td>' +
-        '<td class="num">' + fmt(sum(arr, function (d) { return d.cost; })) + '</td>' +
+        '<td class="num" title="' + fmt(sum(arr, function (d) { return d.cost; })) + ' บาท">' + fmt(Math.round(sum(arr, function (d) { return d.cost; }))) + '</td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.pole1430; })) + '</td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.pole1220; })) + '</td>' +
         '<td class="num">' + fmt(sum(arr, function (d) { return d.sac185; })) + '</td><td></td></tr>'
@@ -537,106 +594,6 @@
       if (d && d.records) { records = d.records; seq = d.seq || (records.length + 1); window._records = records; rebuild(); renderDashboard(); }
     }
 
-    // ---------- Export ----------
-    function download(name, text, type) {
-      const url = URL.createObjectURL(new Blob([text], { type: type }));
-      const a = document.createElement("a"); a.href = url; a.download = name;
-      document.body.appendChild(a); a.click();
-      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
-    }
-    function exportExcel() {
-      if (!records.length) { alert("ยังไม่มีงาน"); return; }
-      const agg = [["งาน", "WBS", "เลขแผนผัง", "ปริมาณ", "ค่าใช้จ่าย", "จำนวนเสา 14.30", "จำนวนเสา 12.20", "ปริมาณ 185 SAC", "จำนวนจุด", "ความยาว(ม.)"]];
-      const verts = [["งาน", "ลำดับ", "lat", "long"]];
-      records.forEach(function (rec) {
-        let np = 0;
-        (rec.paths || []).forEach(function (path) { path.forEach(function (pt) { np++; verts.push([rec.job, np, +pt[1].toFixed(7), +pt[0].toFixed(7)]); }); });
-        agg.push([rec.job, rec.wbs || "", rec.drawing || "", rec.qty, rec.cost, rec.pole1430, rec.pole1220, rec.sac185, np, Math.round(rec.lengthM || 0)]);
-      });
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(agg), "ข้อมูลงาน");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(verts), "พิกัดเส้น");
-      XLSX.writeFile(wb, "งาน22kV_เส้นโค้ง.xlsx");
-    }
-    function exportGeoJSON() {
-      if (!records.length) { alert("ยังไม่มีงาน"); return; }
-      const features = records.map(function (rec) {
-        const geom = rec.paths.length === 1 ? { type: "LineString", coordinates: rec.paths[0] } : { type: "MultiLineString", coordinates: rec.paths };
-        return { type: "Feature", geometry: geom, properties: {
-          job: rec.job, wbs: rec.wbs || "", drawing: rec.drawing || "",
-          qty: rec.qty, cost: rec.cost, pole1430: rec.pole1430, pole1220: rec.pole1220, sac185: rec.sac185, lengthM: Math.round(rec.lengthM || 0) } };
-      });
-      download("งาน22kV_เส้นโค้ง.geojson", JSON.stringify({ type: "FeatureCollection", features: features }, null, 2), "application/geo+json");
-    }
-
-    // ---------- Import ----------
-    function findCol(headers, keys) {
-      const norm = headers.map(function (h) { return (h == null ? "" : String(h)).trim().toLowerCase(); });
-      for (let i = 0; i < norm.length; i++) for (let k = 0; k < keys.length; k++) if (norm[i] === keys[k].toLowerCase()) return i;
-      return -1;
-    }
-    function num(v) { if (v == null || v === "") return null; const n = Number(String(v).replace(/,/g, "")); return isNaN(n) ? null : n; }
-
-    function importExcel(wb, replace) {
-      const vName = wb.SheetNames.indexOf("พิกัดเส้น") >= 0 ? "พิกัดเส้น" : null;
-      if (!vName) { alert("ไม่พบชีต 'พิกัดเส้น' ในไฟล์"); return; }
-      const vrows = XLSX.utils.sheet_to_json(wb.Sheets[vName], { header: 1, defval: null });
-      const vh = vrows[0];
-      const cJob = findCol(vh, ["งาน"]), cSeq = findCol(vh, ["ลำดับ", "seq"]), cLat = findCol(vh, ["lat"]), cLng = findCol(vh, ["long", "lng"]);
-      if (cJob < 0 || cLat < 0 || cLng < 0) { alert("ชีต 'พิกัดเส้น' ต้องมีคอลัมน์ งาน, lat, long"); return; }
-      const byJob = {};
-      for (let r = 1; r < vrows.length; r++) {
-        const row = vrows[r]; if (!row) continue;
-        const job = row[cJob]; const lat = num(row[cLat]); const lng = num(row[cLng]);
-        if (job == null || lat == null || lng == null) continue;
-        const key = String(job).trim();
-        (byJob[key] = byJob[key] || []).push({ seq: cSeq >= 0 ? num(row[cSeq]) : 0, lat: lat, lng: lng });
-      }
-      // aggregate sheet
-      const attrByJob = {};
-      const aName = wb.SheetNames.indexOf("ข้อมูลงาน") >= 0 ? "ข้อมูลงาน" : null;
-      if (aName) {
-        const arows = XLSX.utils.sheet_to_json(wb.Sheets[aName], { header: 1, defval: null });
-        const ah = arows[0];
-        const a = {
-          job: findCol(ah, ["งาน"]), wbs: findCol(ah, ["WBS"]), drawing: findCol(ah, ["เลขแผนผัง"]),
-          qty: findCol(ah, ["ปริมาณ"]), cost: findCol(ah, ["ค่าใช้จ่าย"]),
-          p1430: findCol(ah, ["จำนวนเสา 14.30"]), p1220: findCol(ah, ["จำนวนเสา 12.20"]), sac: findCol(ah, ["ปริมาณ 185 SAC"])
-        };
-        for (let r = 1; r < arows.length; r++) {
-          const row = arows[r]; if (!row || row[a.job] == null) continue;
-          attrByJob[String(row[a.job]).trim()] = {
-            wbs: a.wbs >= 0 && row[a.wbs] != null ? String(row[a.wbs]) : "",
-            drawing: a.drawing >= 0 && row[a.drawing] != null ? String(row[a.drawing]) : "",
-            qty: a.qty >= 0 ? num(row[a.qty]) : null, cost: a.cost >= 0 ? num(row[a.cost]) : null,
-            pole1430: a.p1430 >= 0 ? num(row[a.p1430]) : null, pole1220: a.p1220 >= 0 ? num(row[a.p1220]) : null,
-            sac185: a.sac >= 0 ? num(row[a.sac]) : null
-          };
-        }
-      }
-      const recs = [];
-      Object.keys(byJob).forEach(function (job) {
-        const pts = byJob[job].sort(function (x, y) { return (x.seq || 0) - (y.seq || 0); });
-        const path = pts.map(function (p) { return [p.lng, p.lat]; });
-        const attr = attrByJob[job] || {};
-        recs.push(Object.assign({ id: seq++, job: job, paths: [path], lengthM: geodesicOf(path) }, attr));
-      });
-      finishImport(recs, replace);
-    }
-    function importGeoJSON(gj, replace) {
-      if (!gj || !gj.features) { if (!replace) alert("ไฟล์ GeoJSON ไม่ถูกต้อง"); return; }
-      const recs = [];
-      gj.features.forEach(function (f) {
-        if (!f.geometry) return;
-        let paths = [];
-        if (f.geometry.type === "LineString") paths = [f.geometry.coordinates];
-        else if (f.geometry.type === "MultiLineString") paths = f.geometry.coordinates;
-        else return;
-        const p = f.properties || {};
-        recs.push({ id: seq++, job: p.job || ("งาน " + seq), wbs: p.wbs || "", drawing: p.drawing || "", qty: p.qty, cost: p.cost, pole1430: p.pole1430, pole1220: p.pole1220, sac185: p.sac185, paths: paths, lengthM: geodesicOf(paths[0]) });
-      });
-      finishImport(recs, replace);
-    }
     function geodesicOf(path) {
       try { const wm = webMercatorUtils.geographicToWebMercator(new Polyline({ paths: [path], spatialReference: { wkid: 4326 } })); return geometryEngine.geodesicLength(wm, "meters"); } catch (e) { return 0; }
     }
@@ -669,20 +626,7 @@
         openForm(null);
       });
     }
-    function finishImport(recs, replace) {
-      if (!recs.length) { if (!replace) alert("ไม่พบข้อมูลเส้นในไฟล์"); return; }
-      if (replace) {
-        records = recs;   // แทนที่เงียบๆ (ใช้ตอน auto-load จาก OneDrive)
-      } else if (records.length && !confirm("นำเข้า " + recs.length + " งาน (เพิ่มต่อจากของเดิม) ?\nกด Cancel เพื่อแทนที่ทั้งหมด")) {
-        records = recs;   // แทนที่
-      } else {
-        records = records.concat(recs);
-      }
-      window._records = records; saveLS(); rebuild(); renderDashboard();
-      if (records.length) view.goTo(routeLayer.graphics.toArray()).catch(function () {});
-    }
-
-    // ===== Auto-load ข้อมูลจาก OneDrive =====
+    // ===== แจ้งเตือนบนแผนที่ =====
     function flash(msg, warn) {
       const h = document.getElementById("hint");
       if (!h) return;
@@ -792,22 +736,6 @@
       };
       $("saveBtn").onclick = saveForm;
       $("cancelBtn").onclick = closeForm;
-      $("btnXlsx").onclick = exportExcel;
-      $("btnGeojson").onclick = exportGeoJSON;
-      $("btnImport").onclick = function () { $("fileInput").click(); };
-      $("fileInput").onchange = function (e) {
-        const f = e.target.files[0]; if (!f) return;
-        const reader = new FileReader();
-        const isGeo = /\.(geojson|json)$/i.test(f.name);
-        reader.onload = function (ev) {
-          try {
-            if (isGeo) importGeoJSON(JSON.parse(ev.target.result));
-            else importExcel(XLSX.read(new Uint8Array(ev.target.result), { type: "array" }));
-          } catch (err) { alert("อ่านไฟล์ไม่สำเร็จ: " + err.message); }
-          e.target.value = "";
-        };
-        if (isGeo) reader.readAsText(f); else reader.readAsArrayBuffer(f);
-      };
     });
   </script>
 </body>
