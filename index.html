@@ -388,7 +388,7 @@
       if (SHEET_API) {
         sheetGet();                      // ดึงล่าสุดจาก Google Sheet มาทับ
         if (AUTO_REFRESH_SEC > 0) setInterval(function () {
-          if (saving) return;            // กำลังเซฟอยู่ ข้ามรอบนี้
+          if (saving || pendingSave) return;   // กำลังเซฟ/มีงานค้างยังไม่เซฟ -> ห้ามดึงมาทับ (กันงานหาย)
           if (sketch && sketch.state === "active") return;  // กำลังวาด/ลากจุดอยู่
           if ($("modal").style.display === "flex" || $("coordModal").style.display === "flex") return; // กำลังกรอกฟอร์ม
           sheetGet();
@@ -703,11 +703,13 @@
       setTimeout(function () { h.style.display = "none"; h.style.background = ""; }, warn ? 8000 : 4000);
     }
     // ---------- Google Sheet backend (อ่าน+เขียนอัตโนมัติ) ----------
-    let applyingRemote = false, saving = false, saveTimer = null;
+    // pendingSave = มีการแก้ที่ยังเซฟขึ้น Sheet ไม่สำเร็จ -> ห้าม auto-refresh ดึงมาทับ (กันงานหาย)
+    let applyingRemote = false, saving = false, saveTimer = null, pendingSave = false, changeSeq = 0, sentSeq = 0;
     function sheetUrl() { return SHEET_API + "?token=" + encodeURIComponent(SHEET_TOKEN); }
 
     function sheetGet() {
       if (!SHEET_API) return;
+      if (pendingSave || saving) return;   // มีงานค้างยังไม่เซฟ -> อย่าดึงมาทับ (กันงานหาย)
       fetch(sheetUrl(), { cache: "no-store" })
         .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
         .then(function (data) {
@@ -730,15 +732,26 @@
 
     function scheduleSheetSave() {
       if (!SHEET_API || applyingRemote) return;
+      pendingSave = true; changeSeq++;           // มีการแก้ใหม่ -> ค้างไว้จนกว่าจะเซฟสำเร็จ
       clearTimeout(saveTimer);
       saveTimer = setTimeout(sheetSave, 900);   // รวมการแก้รัวๆ แล้วค่อยเซฟ
     }
     function sheetSave() {
       if (!SHEET_API) return;
-      saving = true;
+      if (saving) { clearTimeout(saveTimer); saveTimer = setTimeout(sheetSave, 500); return; }   // มี POST ค้างอยู่ รอให้เสร็จก่อน
+      saving = true; sentSeq = changeSeq;
       fetch(sheetUrl(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(records) })
-        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); saving = false; flash("✓ บันทึกขึ้น Google Sheet แล้ว"); })
-        .catch(function (err) { saving = false; flash("⚠ บันทึกขึ้น Sheet ไม่ได้: " + err.message, true); });
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          saving = false;
+          if (changeSeq === sentSeq) pendingSave = false;   // ไม่มีการแก้ใหม่ระหว่างเซฟ -> เคลียร์ค้าง
+          flash("✓ บันทึกขึ้น Google Sheet แล้ว");
+        })
+        .catch(function (err) {
+          saving = false;   // คง pendingSave=true ไว้ -> auto-refresh จะไม่ดึงมาทับ (ข้อมูลยังอยู่ในเครื่อง)
+          flash("⚠ บันทึกขึ้น Sheet ไม่ได้: " + err.message + " — จะลองใหม่ใน 5 วิ", true);
+          setTimeout(function () { if (pendingSave && !saving) scheduleSheetSave(); }, 5000);   // retry กันงานหาย
+        });
     }
 
     // ---------- wire up ----------
