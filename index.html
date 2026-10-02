@@ -246,8 +246,9 @@
     let view, sketch, routeLayer, Graphic, Polyline, SimpleLineSymbol, webMercatorUtils, geometryEngine, Point;
     let records = [];               // {id, job, qty, cost, pole1430, pole1220, sac185, paths(lat/long), lengthM}
     let graphicsById = {};
-    let pendingPaths = null, pendingLen = 0, editingId = null, seq = 1, snapEnabled = true;
+    let pendingPaths = null, pendingLen = 0, editingId = null, editingOrigJob = null, seq = 1, snapEnabled = true;
     const LS_KEY = "pea_routes22kv_curve_v1";
+    const DIRTY_KEY = "pea_dirty22kv_v1";   // ธงบอกว่ามีการแก้ที่ยังไม่ได้เซฟขึ้น Sheet (ข้ามเซสชัน)
     // ===== ฐานข้อมูลกลาง = Google Sheet (ผ่าน Apps Script) =====
     const SHEET_API = "https://script.google.com/macros/s/AKfycbxDbdIchMxbP7v24j1CnA9cSAMrEgWe3u9plCM53DBZZQ0D2Pc0mIlF41trL-4mnjwB/exec";
     const SHEET_TOKEN = "sez22";       // ต้องตรงกับ TOKEN ใน Apps Script
@@ -386,7 +387,15 @@
       window._view = view; window._records = records;
       loadLS();                          // แสดงข้อมูลในเครื่องก่อน (เร็ว)
       if (SHEET_API) {
-        sheetGet();                      // ดึงล่าสุดจาก Google Sheet มาทับ
+        let hadUnsaved = false;
+        try { hadUnsaved = localStorage.getItem(DIRTY_KEY) === "1"; } catch (e) {}
+        if (hadUnsaved && records.length) {
+          // เซสชันก่อนแก้ไว้แต่ยังเซฟขึ้น Sheet ไม่สำเร็จ -> ดันขึ้น Sheet ก่อน อย่าดึงมาทับ (กันงานหาย)
+          flash("⤴ มีข้อมูลค้างจากครั้งก่อน กำลังบันทึกขึ้น Sheet...");
+          scheduleSheetSave();           // ตั้ง pendingSave -> sheetGet จะถูกบล็อกจนเซฟเสร็จ
+        } else {
+          sheetGet();                    // ดึงล่าสุดจาก Google Sheet มาทับ
+        }
         if (AUTO_REFRESH_SEC > 0) setInterval(function () {
           if (saving || pendingSave) return;   // กำลังเซฟ/มีงานค้างยังไม่เซฟ -> ห้ามดึงมาทับ (กันงานหาย)
           if (sketch && sketch.state === "active") return;  // กำลังวาด/ลากจุดอยู่
@@ -515,11 +524,12 @@
           " — เติมช่องปริมาณ (" + km.toLocaleString("th-TH") + " วงจร-กม.) ให้แล้ว";
       } else { ro.style.display = "none"; }
       editingId = rec ? rec.id : editingId;   // เก็บ id ถ้าแก้ไข
+      editingOrigJob = rec ? rec.job : null;  // เก็บชื่องานเดิมไว้ fallback (เผื่อ id ถูกรีเฟรชเปลี่ยน)
       $("modal").style.display = "flex";
       $("f_job").focus();
     }
     function closeForm() {
-      $("modal").style.display = "none"; pendingPaths = null; editingId = null;
+      $("modal").style.display = "none"; pendingPaths = null; editingId = null; editingOrigJob = null;
       $("empty").style.display = records.length ? "none" : "";   // ยกเลิกแล้วยังไม่มีงาน -> โชว์ overlay กลับ
     }
     function numOrNull(v) { return v === "" || v == null ? null : Number(v); }
@@ -534,10 +544,16 @@
         pole1430: numOrNull($("f_p1430").value), pole1220: numOrNull($("f_p1220").value),
         sac185: numOrNull($("f_sac").value)
       };
-      if (editingId != null && records.find(function (r) { return r.id === editingId; })) {
-        Object.assign(records.find(function (r) { return r.id === editingId; }), data);
+      // หางานเป้าหมายที่จะแก้: จาก id ก่อน ถ้าไม่เจอ (id ถูกรีเฟรชเปลี่ยน) fallback จากชื่องานเดิม (ต้องตรงตัวเดียว)
+      let target = editingId != null ? records.find(function (r) { return r.id === editingId; }) : null;
+      if (!target && editingOrigJob) {
+        const matches = records.filter(function (r) { return r.job === editingOrigJob; });
+        if (matches.length === 1) target = matches[0];
+      }
+      if (target) {
+        Object.assign(target, data);   // แก้งานเดิม
       } else {
-        records.push(Object.assign({ id: seq++, paths: pendingPaths, lengthM: pendingLen }, data));
+        records.push(Object.assign({ id: seq++, paths: pendingPaths, lengthM: pendingLen }, data));   // เพิ่มงานใหม่
       }
       closeForm(); saveLS(); rebuild(); renderDashboard();
     }
@@ -563,9 +579,9 @@
     function renderKPIs(arr) {
       const P = "#406352", M = "#97D0B1", O = "#F05C4F", L = "#C8C2E0", D = "#292866";
       const top = [
-        { label: "จำนวนงาน", value: arr.length, unit: "งาน", accent: P },
-        { label: "รวมค่าใช้จ่าย", value: sum(arr, function (d) { return d.cost; }), unit: "บาท", cls: "cost", accent: O },
-        { label: "รวมปริมาณ", value: sum(arr, function (d) { return d.qty; }), unit: "วงจร-กม.", accent: L }
+        { label: "จำนวนงาน", value: arr.length, unit: "งาน", accent: P, span: 3 },
+        { label: "รวมค่าใช้จ่าย", value: sum(arr, function (d) { return d.cost; }), unit: "บาท", cls: "cost", accent: O, span: 5 },
+        { label: "รวมปริมาณ", value: sum(arr, function (d) { return d.qty; }), unit: "วงจร-กม.", accent: L, span: 4 }
       ];
       const mat = [
         { label: "รวม 185 SAC", value: sum(arr, function (d) { return d.sac185; }), unit: "เมตร", accent: M },
@@ -573,7 +589,8 @@
         { label: "เสา 12.20", value: sum(arr, function (d) { return d.pole1220; }), unit: "ต้น", accent: D }
       ];
       function stat(c, cls) {
-        return '<div class="' + cls + ' ' + (c.cls || "") + '">' +
+        const style = c.span ? ' style="grid-column: span ' + c.span + '"' : '';
+        return '<div class="' + cls + ' ' + (c.cls || "") + '"' + style + '>' +
           '<div class="label"><span class="dot" style="background:' + c.accent + '"></span>' + c.label + '</div>' +
           '<div class="value">' + (c.value || 0).toLocaleString("th-TH") + ' <span class="unit">' + c.unit + '</span></div></div>';
       }
@@ -714,6 +731,8 @@
         .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
         .then(function (data) {
           if (!Array.isArray(data)) throw new Error(data && data.error ? data.error : "รูปแบบข้อมูลผิด");
+          // ถ้าผู้ใช้กำลังกรอกฟอร์ม/วาด/ลากจุดอยู่ อย่าทับ (กัน id เปลี่ยนใต้มือ -> แก้งานกลายเป็นเพิ่มงานซ้ำ)
+          if ($("modal").style.display === "flex" || $("coordModal").style.display === "flex" || (sketch && sketch.state === "active")) return;
           applyingRemote = true;
           records = data.filter(function (d) { return d.paths && d.paths[0] && d.paths[0].length; }).map(function (d) {
             return {
@@ -733,6 +752,7 @@
     function scheduleSheetSave() {
       if (!SHEET_API || applyingRemote) return;
       pendingSave = true; changeSeq++;           // มีการแก้ใหม่ -> ค้างไว้จนกว่าจะเซฟสำเร็จ
+      try { localStorage.setItem(DIRTY_KEY, "1"); } catch (e) {}   // กันข้อมูลหายข้ามเซสชัน (ปิดแท็บก่อนเซฟเสร็จ)
       clearTimeout(saveTimer);
       saveTimer = setTimeout(sheetSave, 900);   // รวมการแก้รัวๆ แล้วค่อยเซฟ
     }
@@ -744,7 +764,7 @@
         .then(function (r) {
           if (!r.ok) throw new Error("HTTP " + r.status);
           saving = false;
-          if (changeSeq === sentSeq) pendingSave = false;   // ไม่มีการแก้ใหม่ระหว่างเซฟ -> เคลียร์ค้าง
+          if (changeSeq === sentSeq) { pendingSave = false; try { localStorage.removeItem(DIRTY_KEY); } catch (e) {} }   // เซฟครบแล้ว -> เคลียร์ธงค้าง
           flash("✓ บันทึกขึ้น Google Sheet แล้ว");
         })
         .catch(function (err) {
